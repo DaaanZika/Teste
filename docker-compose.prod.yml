@@ -1,0 +1,33 @@
+# Production overrides — layer on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from dev: no source volumes (the image is the deployable
+# artifact), frontend built as a static nginx bundle instead of the Vite
+# dev server, backend runs without --reload, and SECRET_KEY/POSTGRES_PASSWORD
+# are required (no dev fallback) — see .env.example.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    volumes: !override
+      - backend_storage:/app/storage
+    environment:
+      DEBUG: "false"
+      ENVIRONMENT: production
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    volumes: !reset []
+    ports: !override
+      - "${FRONTEND_PORT:-80}:80"
+    command: []
+
+  db:
+    ports: !reset []

@@ -1,0 +1,106 @@
+# Development compose file: hot-reloading backend and frontend, source
+# mounted as volumes, PostgreSQL as the database. Redis is NOT started by
+# default — `docker compose up` never requires it, matching PROMPT 3 §3
+# ("não obrigar Redis em operações que não precisam dele"). Start it only
+# when you need the async queue (FASE G):
+#
+#   docker compose --profile queue up
+#
+# For a production-like run, layer the override file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+#
+# Nothing here duplicates backend/Dockerfile or frontend/Dockerfile logic —
+# both images are environment-agnostic; only the command/volumes differ
+# between this file and docker-compose.prod.yml.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-campanhas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-campanhas}
+      POSTGRES_DB: ${POSTGRES_DB:-campanhas}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-campanhas}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    profiles: ["queue"]
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-campanhas}:${POSTGRES_PASSWORD:-campanhas}@db:5432/${POSTGRES_DB:-campanhas}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      QUEUE_BACKEND: ${QUEUE_BACKEND:-inline}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-local-dev-secret}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+    volumes:
+      - ./backend:/app
+      - backend_storage:/app/storage
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-campanhas}:${POSTGRES_PASSWORD:-campanhas}@db:5432/${POSTGRES_DB:-campanhas}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      QUEUE_BACKEND: redis
+    volumes:
+      - ./backend:/app
+      - backend_storage:/app/storage
+    entrypoint: ["python", "-m", "app.queue.worker"]
+    command: []
+    profiles: ["queue"]
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:${BACKEND_PORT:-8000}}
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_storage:
+  frontend_node_modules:

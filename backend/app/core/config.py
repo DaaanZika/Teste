@@ -44,9 +44,39 @@ class Settings(BaseSettings):
         "application/pdf",
     )
 
-    # Auth (local-only placeholder in V1; see core/security.py)
+    # Auth. "local" keeps the V1 single-operator behavior (core/security.py);
+    # "google" activates real Google OAuth (core/auth/google_oauth.py) once
+    # GOOGLE_CLIENT_ID/SECRET are set. Session cookies are signed with
+    # secret_key — never commit a real value; .env.example ships a dev-only
+    # placeholder and docker-compose requires an override in production.
     auth_provider: str = "local"
     secret_key: str = "change-me-in-production-local-dev-secret"
+    session_cookie_name: str = "campanhas_session"
+    session_ttl_hours: int = 12
+
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str | None = None
+
+    # Cloud storage (used only when storage_provider != "local", see
+    # app/integrations/storage_adapter.py). backup_storage_provider is
+    # optional and independent — PRIMARY storage never depends on it.
+    storage_bucket: str | None = None
+    storage_region: str | None = None
+    backup_storage_provider: str | None = None
+
+    # Redis: only required when queue_backend="redis" (see app/queue/).
+    # queue_backend="inline" (the default) runs jobs synchronously in the
+    # request, exactly like V1 — Redis is never mandatory for local use.
+    redis_url: str | None = None
+    queue_backend: str = "inline"
+
+    # Outbound email (Gmail import notifications, future use). Optional.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
 
     # OCR
     tesseract_cmd: str | None = None  # if None, relies on PATH

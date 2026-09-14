@@ -1,0 +1,12 @@
+# Root-level env file for docker-compose (backend/ and frontend/ have their own .gitignore)
+.env
+.env.local
+
+# Local backup artifacts (see scripts/backup.sh)
+backups/*.tar.gz
+backups/*.sql
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
