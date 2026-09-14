@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,9 +46,18 @@ def finance_balance(campaign_id: str | None = None, db: Session = Depends(get_db
 
 @router.get("/totals/period")
 def finance_totals_by_period(
-    campaign_id: str | None = None, granularity: str = "month", db: Session = Depends(get_db)
+    campaign_id: str | None = None,
+    granularity: str = "day",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: Session = Depends(get_db),
 ) -> list[dict]:
-    return calculator.totals_by_period(db, campaign_id=campaign_id, granularity=granularity)
+    """Powers the dashboard chart's period filters (hoje/7 dias/30 dias/personalizado):
+    the caller picks `start_date`/`end_date` and `granularity`; this backend does the
+    aggregation so the frontend never sums money itself."""
+    return calculator.totals_by_period(
+        db, campaign_id=campaign_id, granularity=granularity, start_date=start_date, end_date=end_date
+    )
 
 
 @router.get("/totals/category")

@@ -94,3 +94,28 @@ def test_totals_by_period_groups_by_month(db_session, campaign_id):
     assert periods["2024-03"]["total_expenses"] == Decimal("40.00")
     assert periods["2024-03"]["balance"] == Decimal("60.00")
     assert periods["2024-04"]["total_revenues"] == Decimal("10.00")
+
+
+def test_totals_by_period_day_granularity_and_date_range(db_session, campaign_id):
+    _add_transaction(
+        db_session, campaign_id=campaign_id, type_=TransactionType.REVENUE, amount="20.00", when=date(2024, 6, 1)
+    )
+    _add_transaction(
+        db_session, campaign_id=campaign_id, type_=TransactionType.REVENUE, amount="30.00", when=date(2024, 6, 2)
+    )
+    _add_transaction(
+        db_session, campaign_id=campaign_id, type_=TransactionType.REVENUE, amount="99.00", when=date(2024, 7, 1)
+    )
+
+    rows = calculator.totals_by_period(
+        db_session,
+        campaign_id=campaign_id,
+        granularity="day",
+        start_date=date(2024, 6, 1),
+        end_date=date(2024, 6, 30),
+    )
+
+    assert {r["period"] for r in rows} == {"2024-06-01", "2024-06-02"}
+    by_day = {r["period"]: r for r in rows}
+    assert by_day["2024-06-01"]["total_revenues"] == Decimal("20.00")
+    assert by_day["2024-06-02"]["total_revenues"] == Decimal("30.00")

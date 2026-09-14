@@ -58,22 +58,36 @@ def balance(db: Session, *, campaign_id: str | None = None) -> Decimal:
     return _quantize(total_revenues(db, campaign_id=campaign_id) - total_expenses(db, campaign_id=campaign_id))
 
 
+_PERIOD_KEY_FORMATS = {"day": "%Y-%m-%d", "month": "%Y-%m", "year": "%Y"}
+
+
 def totals_by_period(
-    db: Session, *, campaign_id: str | None = None, granularity: str = "month"
+    db: Session,
+    *,
+    campaign_id: str | None = None,
+    granularity: str = "month",
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> list[dict]:
-    """Aggregates revenues/expenses/balance per period (`month` -> YYYY-MM, `year` -> YYYY).
+    """Aggregates revenues/expenses/balance per period.
+
+    `granularity` controls the bucket key: `day` -> YYYY-MM-DD, `month` ->
+    YYYY-MM, `year` -> YYYY. `start_date`/`end_date` (inclusive) let the
+    dashboard chart filter to "hoje", "7 dias", "30 dias" or a custom
+    range without pulling every transaction into the client.
 
     Rows with no date are excluded — they cannot be attributed to a period.
     """
-    if granularity not in ("month", "year"):
-        raise ValueError("granularity must be 'month' or 'year'")
+    if granularity not in _PERIOD_KEY_FORMATS:
+        raise ValueError("granularity must be 'day', 'month' or 'year'")
 
-    rows = _transactions(db, campaign_id=campaign_id)
+    rows = _transactions(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
+    date_format = _PERIOD_KEY_FORMATS[granularity]
     totals: dict[str, dict[str, Decimal]] = {}
     for row in rows:
         if row.date is None:
             continue
-        key = row.date.strftime("%Y-%m") if granularity == "month" else row.date.strftime("%Y")
+        key = row.date.strftime(date_format)
         bucket = totals.setdefault(key, {"revenues": Decimal("0"), "expenses": Decimal("0")})
         if row.type == TransactionType.REVENUE:
             bucket["revenues"] += row.amount
