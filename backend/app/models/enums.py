@@ -87,6 +87,18 @@ class AuditAction(str, enum.Enum):
     LOGOUT = "LOGOUT"
 
 
+class BackupStatus(str, enum.Enum):
+    """Status of the OPTIONAL secondary copy of a document (PROMPT 3 §12).
+    The primary copy (`Document.original_path`/`storage_provider`) is never
+    affected by this — a failed or not-configured backup never blocks
+    upload/processing (PROMPT 3 §45)."""
+
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
 class Role(str, enum.Enum):
     """RBAC roles (PROMPT 3 §8). Permission matrix lives in app/core/rbac.py,
     not scattered across routes — a role's actual capabilities are never

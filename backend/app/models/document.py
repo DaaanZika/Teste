@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import date as date_type
 from decimal import Decimal
 
-from sqlalchemy import Date, Enum as SAEnum, ForeignKey, Numeric, String, Text
+from datetime import datetime
+
+from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import DocumentStatus, OCRConfidence
+from app.models.enums import BackupStatus, DocumentStatus, OCRConfidence
 
 
 class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -33,6 +35,25 @@ class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     original_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     processed_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # Which provider holds the PRIMARY copy (`original_path`/`processed_path`
+    # are interpreted relative to it, see app/integrations/storage_adapter.py).
+    # "local" unless STORAGE_PROVIDER is explicitly changed.
+    storage_provider: Mapped[str] = mapped_column(String(30), default="local", nullable=False)
+    # External reference for the primary copy when storage_provider != "local"
+    # (e.g. a Google Drive file id). Internal `id` above is the document_id
+    # every other table references — this is only ever a lookup key into the
+    # external system (PROMPT 3 §11).
+    external_storage_id: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Optional SECONDARY copy (backup), independent of the primary above.
+    backup_status: Mapped[BackupStatus] = mapped_column(
+        SAEnum(BackupStatus, native_enum=False, length=20), default=BackupStatus.NOT_CONFIGURED, nullable=False
+    )
+    backup_storage_provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    backup_external_id: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    backup_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    backup_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[DocumentStatus] = mapped_column(
         SAEnum(DocumentStatus, native_enum=False, length=30),

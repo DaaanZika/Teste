@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import DocumentStatus, OCRConfidence
+from app.models.enums import BackupStatus, DocumentStatus, OCRConfidence
 
 
 class DocumentItemRead(BaseModel):
@@ -42,6 +42,10 @@ class DocumentRead(BaseModel):
     extracted_payment_method: str | None
     possible_duplicate_of_id: str | None
     processing_error: str | None
+    storage_provider: str
+    backup_status: BackupStatus
+    backup_completed_at: datetime | None
+    backup_error: str | None
     items: list[DocumentItemRead] = []
     created_at: datetime
     updated_at: datetime

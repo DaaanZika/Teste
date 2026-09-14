@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.core.config import get_settings
 from app.core.exceptions import UnauthorizedError
+from app.core.rbac import Permission, role_has_permission
 from app.core.security import get_current_user as resolve_current_user
 from app.models.enums import AuditAction
 from app.models.user import User
@@ -14,10 +15,12 @@ from app.schemas.auth import AuthStatus
 from app.schemas.user import UserRead
 from app.services.audit.audit_service import record as record_audit
 from app.services.auth import google_oauth, session_service, user_service
+from app.services.integrations import google_tokens
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 STATE_COOKIE_NAME = "campanhas_oauth_state"
+DRIVE_STATE_COOKIE_NAME = "campanhas_oauth_state_drive"
 
 
 @router.get("/status", response_model=AuthStatus)
@@ -57,6 +60,16 @@ def google_login() -> RedirectResponse:
 
 @router.get("/google/callback")
 def google_callback(request: Request, code: str, state: str, db: Session = Depends(get_db)) -> RedirectResponse:
+    """One registered Google redirect URI serves two purposes, told apart by
+    which state cookie matches (see app/services/auth/google_oauth.py):
+    a login (STATE_COOKIE_NAME) or connecting Google Drive
+    (DRIVE_STATE_COOKIE_NAME, started from /integrations/google-drive/connect)."""
+    if request.cookies.get(DRIVE_STATE_COOKIE_NAME) == state:
+        return _handle_drive_connect_callback(request, code, db)
+    return _handle_login_callback(request, code, state, db)
+
+
+def _handle_login_callback(request: Request, code: str, state: str, db: Session) -> RedirectResponse:
     settings = get_settings()
     expected_state = request.cookies.get(STATE_COOKIE_NAME)
     if not expected_state or expected_state != state:
@@ -82,6 +95,33 @@ def google_callback(request: Request, code: str, state: str, db: Session = Depen
         secure=not settings.debug,
         samesite="lax",
     )
+    return response
+
+
+def _handle_drive_connect_callback(request: Request, code: str, db: Session) -> RedirectResponse:
+    settings = get_settings()
+    # Connecting Drive requires an already-authenticated ADMIN — enforced
+    # when /integrations/google-drive/connect was first requested, and
+    # re-checked here since this callback is reachable directly.
+    user = resolve_current_user(request, db)
+    if not role_has_permission(user.role, Permission.MANAGE_INTEGRATIONS):
+        raise UnauthorizedError("Apenas administradores podem conectar o Google Drive.")
+
+    tokens = google_oauth.exchange_code_for_tokens(code)
+    google_tokens.save_connection(
+        db,
+        user_id=user.id,
+        provider="google_drive",
+        scope=tokens.scope,
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+        expires_in_seconds=tokens.expires_in,
+    )
+    record_audit(db, entity="integration", entity_id="google_drive", action=AuditAction.CREATE, user_id=user.id)
+    db.commit()
+
+    response = RedirectResponse(f"{settings.frontend_url}/configuracoes", status_code=302)
+    response.delete_cookie(DRIVE_STATE_COOKIE_NAME)
     return response
 
 

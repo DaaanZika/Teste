@@ -28,7 +28,7 @@ from app.core.exceptions import (
     NotFoundError,
     UnsupportedFileTypeError,
 )
-from app.integrations.storage_adapter import get_storage_provider
+from app.integrations.storage_adapter import get_storage_provider, get_storage_provider_for_document
 from app.models.document import Document, DocumentItem
 from app.models.enums import (
     AlertType,
@@ -41,6 +41,7 @@ from app.models.enums import (
 from app.models.processing_job import ProcessingJob
 from app.services.audit.audit_service import record as record_audit
 from app.services.compliance.alerts import raise_alert
+from app.services.documents import backup_service
 from app.services.documents.duplicate_detector import check_duplicates, find_hash_duplicate
 from app.services.documents.hashing import sha256_hex
 from app.services.ocr.confidence import requires_human_review, score_confidence
@@ -112,8 +113,9 @@ def upload_document(
         db.refresh(hash_match)
         return UploadResult(document=hash_match, possible_duplicate=True, duplicate_reasons=["same_file_hash"])
 
-    storage = get_storage_provider()
-    original_path = storage.save_original(filename, content)
+    settings = get_settings()
+    storage = get_storage_provider(db)
+    original_path = storage.save_original(filename, content, campaign_id=campaign_id)
 
     document = Document(
         campaign_id=campaign_id,
@@ -123,6 +125,8 @@ def upload_document(
         file_size_bytes=len(content),
         sha256_hash=file_hash,
         original_path=original_path,
+        storage_provider=settings.storage_provider,
+        external_storage_id=original_path if settings.storage_provider != "local" else None,
         status=DocumentStatus.UPLOADED,
     )
     db.add(document)
@@ -139,6 +143,8 @@ def upload_document(
 
     db.commit()
     db.refresh(document)
+
+    backup_service.backup_document(db, document, content=content, filename=filename)
 
     return UploadResult(document=document, possible_duplicate=False, duplicate_reasons=[])
 
@@ -180,7 +186,7 @@ def process_document(db: Session, document_id: str, *, user_id: str | None = Non
     db.refresh(job)
 
     try:
-        storage = get_storage_provider()
+        storage = get_storage_provider_for_document(db, document.storage_provider)
         original_bytes = storage.read(document.original_path)
 
         ocr_result = run_ocr(original_bytes, document.mime_type, language=settings.ocr_language)

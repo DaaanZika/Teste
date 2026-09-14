@@ -4,6 +4,7 @@ import { complianceApi } from '@/api/compliance'
 import { documentsApi } from '@/api/documents'
 import { expensesApi } from '@/api/expenses'
 import { financeApi } from '@/api/finance'
+import { integrationsApi } from '@/api/integrations'
 import { reportsApi } from '@/api/reports'
 import { revenuesApi } from '@/api/revenues'
 
@@ -22,6 +23,7 @@ export const api = {
   reports: reportsApi,
   compliance: complianceApi,
   audit: auditApi,
+  integrations: integrationsApi,
 }
 
 export { AppError, toAppError } from '@/lib/errors'

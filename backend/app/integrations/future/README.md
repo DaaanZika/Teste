@@ -6,13 +6,21 @@ ingestion, TSE export) can be implemented by filling in a class that
 already matches the shape the rest of the backend expects, instead of
 redesigning call sites across the codebase.
 
-Google OAuth login is **no longer here** — it moved to a real
-implementation once it was actually built: see `app/services/auth/`
-(`google_oauth.py`, `session_service.py`) and `app/api/routes/auth.py`.
-It is functional whenever `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/
-`GOOGLE_REDIRECT_URI` are configured, and raises `NotConfiguredError`
-(never a fake success) otherwise.
+Two integrations are **no longer here** — they moved to real
+implementations once actually built:
 
-Do not import the remaining stubs here from `app/api` or `app/services`.
+- Google OAuth login: `app/services/auth/` (`google_oauth.py`,
+  `session_service.py`) and `app/api/routes/auth.py`.
+- Google Drive storage: `app/integrations/google_drive_storage.py`
+  (`GoogleDriveStorage`, selected via `STORAGE_PROVIDER=google_drive` or
+  `BACKUP_STORAGE_PROVIDER=google_drive`), token storage in
+  `app/services/integrations/google_tokens.py`, connect/disconnect routes
+  in `app/api/routes/integrations.py`.
+
+Both are functional whenever their required configuration is present and
+raise `NotConfiguredError` (never a fake success) otherwise.
+
+Do not import the remaining stubs here (`cloud_storage_provider.py`,
+`gmail_provider.py`, `tse_exporter.py`) from `app/api` or `app/services`.
 Do not add credentials, SDKs, or network calls to them until the
 integration is actually being built.

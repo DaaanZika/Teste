@@ -171,6 +171,9 @@ backend/
 | GET | `/auth/me` | Usuário autenticado |
 | GET | `/users`, `PATCH /users/{id}` | Gestão de usuários (somente ADMIN) |
 | GET/POST/PUT | `/campaigns`, `/campaigns/{id}` | Campanhas (múltiplas campanhas, ver seção RBAC abaixo) |
+| GET | `/integrations/status` | Estado real de Google Drive, Gmail, backup, banco e OCR |
+| GET | `/integrations/google-drive/connect` | Inicia a conexão do Google Drive (somente ADMIN) |
+| POST | `/integrations/google-drive/disconnect` | Desconecta o Google Drive (somente ADMIN) |
 | POST | `/documents/upload` | Upload de documento (multipart) |
 | GET | `/documents` | Lista documentos (filtros: `status`, `campaign_id`) |
 | GET | `/documents/{id}` | Detalhe de um documento |
@@ -245,10 +248,29 @@ logados no servidor (ver `app/core/exceptions.py`).
 - Arquivos originais nunca são executados nem sobrescritos.
 - `storage/temporary/` é isolado de `storage/originals/`.
 
-## Próximos passos (fora do escopo desta V1)
+## Armazenamento e backup (opcional)
 
-Ver `app/integrations/future/README.md`: armazenamento em nuvem (Google
-Drive), ingestão por e-mail (Gmail), login (Google OAuth) e exportação no
-formato oficial do TSE. Nenhum desses itens tem código funcional nesta
-fase — apenas interfaces que a V2 pode implementar sem redesenhar o
-restante do backend.
+`STORAGE_PROVIDER` seleciona onde um documento *novo* é gravado —
+`local` (padrão, disco) ou `google_drive` (requer um ADMIN logado via
+Google OAuth ter conectado o Drive em `GET /integrations/google-drive/connect`).
+Documentos já existentes continuam lidos pelo provider com que foram
+gravados (`Document.storage_provider`), mesmo que a configuração global
+mude depois — ver `app/integrations/storage_adapter.py`.
+
+`BACKUP_STORAGE_PROVIDER` é uma cópia secundária independente e
+totalmente opcional: se não configurado, `Document.backup_status` fica
+`NOT_CONFIGURED`; se configurado mas a cópia falhar (Drive desconectado,
+erro de rede), o documento é marcado `backup_status=FAILED` com um alerta
+`WARNING` — o upload original, já salvo no storage primário, nunca é
+afetado (`app/services/documents/backup_service.py`).
+
+Sem nenhuma dessas variáveis configuradas, o sistema roda 100% local,
+exatamente como a V1.
+
+## Próximos passos (fora do escopo desta fase)
+
+Ver `app/integrations/future/README.md`: ingestão por e-mail (Gmail) e
+exportação no formato oficial do TSE — sem código funcional ainda.
+Fila assíncrona (Redis + worker) e regras eleitorais versionadas também
+seguem pendentes (ver o histórico de commits/fases no topo deste
+repositório).

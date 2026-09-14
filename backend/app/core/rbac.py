@@ -23,6 +23,7 @@ class Permission(str, enum.Enum):
     MANAGE_USERS = "MANAGE_USERS"
     MANAGE_CAMPAIGNS = "MANAGE_CAMPAIGNS"
     MANAGE_RULES = "MANAGE_RULES"
+    MANAGE_INTEGRATIONS = "MANAGE_INTEGRATIONS"  # connect/disconnect Google Drive, Gmail, etc.
     MANAGE_FINANCE = "MANAGE_FINANCE"  # create/edit expenses & revenues
     MANAGE_DOCUMENTS = "MANAGE_DOCUMENTS"  # upload/process/correct/link
     VIEW_FINANCE = "VIEW_FINANCE"

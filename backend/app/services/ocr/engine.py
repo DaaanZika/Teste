@@ -23,6 +23,23 @@ class OCRResult:
     error: str | None = None
 
 
+def is_tesseract_available() -> bool:
+    """Cheap check for the integrations status panel (PROMPT 3 §44) —
+    does not run OCR, just confirms the `tesseract` binary is reachable."""
+    try:
+        import pytesseract
+
+        from app.core.config import get_settings
+
+        tesseract_cmd = get_settings().tesseract_cmd
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
 def _preprocess_image(pil_image):
     """Grayscale + threshold to improve OCR accuracy on photographed receipts.
 

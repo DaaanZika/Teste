@@ -272,6 +272,21 @@ export interface AuthStatus {
   user: UserRead | null
 }
 
+export interface IntegrationStatus {
+  name: string
+  connected: boolean
+  detail: string | null
+}
+
+export interface IntegrationsStatusResponse {
+  google_oauth: IntegrationStatus
+  google_drive: IntegrationStatus
+  gmail: IntegrationStatus
+  backup: IntegrationStatus
+  database: IntegrationStatus
+  ocr: IntegrationStatus
+}
+
 /** The uniform error body returned by every handled backend failure. */
 export interface ApiErrorBody {
   success: false

@@ -21,6 +21,7 @@ from app.api.routes import (
     expenses,
     finance,
     health,
+    integrations,
     reports,
     revenues,
     users,
@@ -59,6 +60,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(campaigns.router)
+app.include_router(integrations.router)
 app.include_router(documents.router)
 app.include_router(expenses.router)
 app.include_router(revenues.router)

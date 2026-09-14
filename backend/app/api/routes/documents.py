@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db, require_permission
 from app.core.rbac import Permission
-from app.integrations.storage_adapter import get_storage_provider
+from app.integrations.storage_adapter import get_storage_provider_for_document
 from app.models.enums import DocumentStatus
 from app.schemas.document import DocumentCorrection, DocumentRead, DocumentUploadResponse
 from app.services.documents import document_service
@@ -62,7 +62,7 @@ def get_document_file(document_id: str, db: Session = Depends(get_db)) -> Respon
     (PROMPT 2 §24 document viewer). The original is never modified on disk;
     this only reads it back through the same storage adapter used to save it."""
     document = document_service.get_document(db, document_id)
-    storage = get_storage_provider()
+    storage = get_storage_provider_for_document(db, document.storage_provider)
     content = storage.read(document.original_path)
     return Response(
         content=content,
