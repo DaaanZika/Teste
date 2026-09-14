@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_permission
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.core.rbac import Permission
-from app.models.enums import AuditAction
+from app.models.enums import AuditAction, Role
 from app.models.user import User
 from app.schemas.user import UserRead, UserUpdate
 from app.services.audit.audit_service import record as record_audit
@@ -37,6 +37,24 @@ def update_user(
         raise NotFoundError(f"Usuário {user_id} não encontrado.")
 
     updates = payload.model_dump(exclude_unset=True)
+
+    would_remove_last_admin = (
+        user.role == Role.ADMIN
+        and user.active
+        and (("role" in updates and updates["role"] != Role.ADMIN) or updates.get("active") is False)
+    )
+    if would_remove_last_admin:
+        other_active_admins = db.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == Role.ADMIN, User.active.is_(True), User.id != user.id)
+        ).scalar_one()
+        if other_active_admins == 0:
+            raise ConflictError(
+                "Não é possível remover ou desativar o último administrador ativo. "
+                "Promova outro usuário a ADMIN antes de alterar este."
+            )
+
     old_values = {k: getattr(user, k) for k in updates}
 
     for field, value in updates.items():

@@ -107,6 +107,14 @@ class DocumentProcessingError(AppError):
     requires_human_review = True
 
 
+class RateLimitExceededError(AppError):
+    """Too many attempts against a sensitive endpoint (login, OAuth
+    callbacks) from the same client in a short window — PROMPT 3 §FASE H."""
+
+    error_code = "RATE_LIMIT_EXCEEDED"
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+
+
 def _error_response(*, error: str, message: str, status_code: int, requires_human_review: bool = False) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,

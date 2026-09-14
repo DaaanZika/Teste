@@ -16,6 +16,15 @@ services:
     environment:
       DEBUG: "false"
       ENVIRONMENT: production
+      # `${VAR:?message}` makes Compose refuse to start instead of silently
+      # falling back to the dev defaults in the base docker-compose.yml
+      # (SECRET_KEY=change-me-in-production-local-dev-secret,
+      # POSTGRES_PASSWORD=campanhas) — those defaults exist only for local
+      # `docker compose up` without this override file (FASE H audit: the
+      # base file's fallbacks were still reachable here before this fix,
+      # contradicting this file's own "no dev fallback" comment above).
+      SECRET_KEY: ${SECRET_KEY:?Defina SECRET_KEY no .env de produção — não há valor padrão aqui.}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-campanhas}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env de produção — não há valor padrão aqui.}@db:5432/${POSTGRES_DB:-campanhas}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
 
   frontend:
@@ -30,4 +39,6 @@ services:
     command: []
 
   db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env de produção — não há valor padrão aqui.}
     ports: !reset []

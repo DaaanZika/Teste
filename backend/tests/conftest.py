@@ -40,6 +40,20 @@ if os.environ.get("TEST_DATABASE_URL"):
 Base.metadata.create_all(bind=engine)
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """The rate limiter (app/core/rate_limit.py) tracks hits in process
+    memory, keyed by client IP — every test using `client` shares the same
+    "testclient" IP, so without a reset a rate-limit test (or simply many
+    tests hitting the same endpoint) would bleed its counters into
+    unrelated tests run afterwards in the same process."""
+    from app.core.rate_limit import reset_all
+
+    reset_all()
+    yield
+    reset_all()
+
+
 @pytest.fixture()
 def db_session():
     session = SessionLocal()

@@ -57,9 +57,15 @@ class Settings(BaseSettings):
 
     # Auth. "local" keeps the V1 single-operator behavior (core/security.py);
     # "google" activates real Google OAuth (core/auth/google_oauth.py) once
-    # GOOGLE_CLIENT_ID/SECRET are set. Session cookies are signed with
-    # secret_key — never commit a real value; .env.example ships a dev-only
-    # placeholder and docker-compose requires an override in production.
+    # GOOGLE_CLIENT_ID/SECRET are set. Session cookies carry a random
+    # 256-bit opaque token (secrets.token_urlsafe) that the database only
+    # ever stores hashed (app/services/auth/session_service.py) — NOT a
+    # value signed with secret_key below. secret_key is currently unused by
+    # any code path; it's kept as a required, must-be-rotated placeholder
+    # so a future stateless/signed-token scheme has a secret already wired
+    # through config/docker-compose/.env.example instead of one added
+    # later under time pressure. Never commit a real value here — FASE H
+    # audit note, not a claim that this key currently protects anything.
     auth_provider: str = "local"
     secret_key: str = "change-me-in-production-local-dev-secret"
     session_cookie_name: str = "campanhas_session"

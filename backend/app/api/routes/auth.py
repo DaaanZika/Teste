@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.core.config import get_settings
 from app.core.exceptions import UnauthorizedError
+from app.core.rate_limit import rate_limit
 from app.core.rbac import Permission, role_has_permission
 from app.core.security import get_current_user as resolve_current_user
 from app.models.enums import AuditAction
@@ -22,6 +23,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 STATE_COOKIE_NAME = "campanhas_oauth_state"
 DRIVE_STATE_COOKIE_NAME = "campanhas_oauth_state_drive"
 GMAIL_STATE_COOKIE_NAME = "campanhas_oauth_state_gmail"
+
+# Reachable without a session — a flood here wastes this server's time AND
+# Google's token endpoint (the callback path) — so both are rate limited
+# per client IP (docs/audit/FASE-D-gaps.md "Sem rate limiting no login").
+_login_rate_limit = Depends(rate_limit("auth_login", max_attempts=10, window_seconds=60))
+_callback_rate_limit = Depends(rate_limit("auth_callback", max_attempts=20, window_seconds=60))
 
 
 @router.get("/status", response_model=AuthStatus)
@@ -42,7 +49,7 @@ def auth_status(request: Request, db: Session = Depends(get_db)) -> AuthStatus:
     )
 
 
-@router.get("/google/login")
+@router.get("/google/login", dependencies=[_login_rate_limit])
 def google_login() -> RedirectResponse:
     state = google_oauth.generate_state()
     authorization_url = google_oauth.build_authorization_url(state)
@@ -59,7 +66,7 @@ def google_login() -> RedirectResponse:
     return response
 
 
-@router.get("/google/callback")
+@router.get("/google/callback", dependencies=[_callback_rate_limit])
 def google_callback(request: Request, code: str, state: str, db: Session = Depends(get_db)) -> RedirectResponse:
     """One registered Google redirect URI serves three purposes, told apart
     by which state cookie matches (see app/services/auth/google_oauth.py):
