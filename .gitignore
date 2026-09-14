@@ -2,9 +2,11 @@
 .env
 .env.local
 
-# Local backup artifacts (see scripts/backup.sh)
-backups/*.tar.gz
-backups/*.sql
+# Local backup artifacts (contain real campaign data — see scripts/backup.sh
+# and backend/BACKUP.md). They land in backend/backups/, already covered
+# by backend/.gitignore; kept here too in case a script is ever run from
+# the repo root with a different working directory.
+backups/
 
 # OS / editor
 .DS_Store

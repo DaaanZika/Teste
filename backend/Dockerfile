@@ -4,14 +4,17 @@
 # between the two: the Dockerfile never branches on environment.
 FROM python:3.11-slim
 
-# Tesseract + language pack, and the shared libs OpenCV/PyMuPDF need at
-# runtime (not just build time) — matches backend/README.md's manual
-# installation instructions, just baked into the image instead.
+# Tesseract + language pack, the shared libs OpenCV/PyMuPDF need at
+# runtime (not just build time), and postgresql-client (pg_dump/pg_restore
+# — app/services/backup/backup_service.py, FASE K) — matches
+# backend/README.md's manual installation instructions, just baked into
+# the image instead.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-por \
     libglib2.0-0 \
     libgl1 \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -90,6 +90,9 @@ do banco, e isso é testado de verdade (não só por design): ver
 Com Docker (`docker compose up` na raiz do projeto), o Postgres já sobe
 configurado automaticamente — ver `../README.md`.
 
+Backup e restauração (banco + documentos), incluindo como a restauração é
+de fato verificada: ver `BACKUP.md`.
+
 ## Execução
 
 ```bash

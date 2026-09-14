@@ -20,6 +20,9 @@ storage/temporary/*
 !storage/processed/.gitkeep
 !storage/temporary/.gitkeep
 
+# Local backups (contains real campaign data — never committed, see BACKUP.md)
+backups/
+
 # Editors / OS
 .vscode/
 .idea/

@@ -42,8 +42,9 @@ independente com SQLite local, exatamente como na V1.
 ## Documentação
 
 - `docs/audit/` — auditorias de arquitetura feitas antes de cada fase de evolução.
-- `backend/app/rules/electoral/README.md` — por que a base de regras eleitorais começa vazia.
-- `backend/app/integrations/future/README.md` — integrações planejadas (Google Drive, Gmail, OAuth, TSE).
+- `backend/app/rules/electoral/README.md` — por que a base de regras eleitorais começa vazia (e como o versionamento funciona).
+- `backend/app/integrations/future/README.md` — o que ainda é planejado (exportação TSE) vs. o que já é real (Google OAuth, Drive, Gmail — ver `backend/README.md`).
+- `backend/BACKUP.md` — backup e restauração (banco + documentos), com a restauração de fato verificada, não assumida.
 
 ## Princípios do projeto
 
