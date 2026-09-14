@@ -39,6 +39,21 @@ def test_reports_endpoints_return_json(client):
         assert isinstance(response.json(), list)
 
 
+def test_reports_summary_includes_expenses_without_document_like_finance_summary(client):
+    """Real bug caught live in the browser (FASE L): /reports/summary used
+    to omit expenses_without_document while the frontend's Relatórios page
+    always expected it, rendering the literal string "undefined". Both
+    endpoints must agree on this figure."""
+    client.post("/expenses", json={"description": "Sem documento", "amount": "42.00"})
+
+    reports_summary = client.get("/reports/summary").json()
+    finance_summary = client.get("/finance/summary").json()
+
+    assert "expenses_without_document" in reports_summary
+    assert reports_summary["expenses_without_document"] == finance_summary["expenses_without_document"]
+    assert reports_summary["expenses_without_document"] >= 1
+
+
 def test_compliance_alerts_endpoint(client):
     # Creating an expense without a document raises a "despesa sem documento" alert.
     client.post("/expenses", json={"description": "Teste alerta", "amount": "42.00"})

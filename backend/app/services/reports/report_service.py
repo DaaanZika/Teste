@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.compliance import ComplianceAlert
 from app.models.document import Document
-from app.models.enums import AlertStatus, DocumentStatus, ExpenseStatus, RevenueStatus
+from app.models.enums import AlertStatus, DocumentLinkStatus, DocumentStatus, ExpenseStatus, RevenueStatus
 from app.models.expense import Expense
 from app.models.revenue import Revenue
 from app.services.finance import calculator
@@ -23,9 +23,11 @@ def summary_report(db: Session, *, campaign_id: str | None = None) -> dict:
 
     pending_expenses_stmt = select(Expense).where(Expense.status == ExpenseStatus.PENDING_INFORMATION)
     pending_revenues_stmt = select(Revenue).where(Revenue.status == RevenueStatus.PENDING_INFORMATION)
+    without_document_stmt = select(Expense).where(Expense.document_status != DocumentLinkStatus.ATTACHED)
     if campaign_id is not None:
         pending_expenses_stmt = pending_expenses_stmt.where(Expense.campaign_id == campaign_id)
         pending_revenues_stmt = pending_revenues_stmt.where(Revenue.campaign_id == campaign_id)
+        without_document_stmt = without_document_stmt.where(Expense.campaign_id == campaign_id)
 
     return {
         "total_revenues": total_revenues,
@@ -33,6 +35,7 @@ def summary_report(db: Session, *, campaign_id: str | None = None) -> dict:
         "balance": total_revenues - total_expenses,
         "pending_information_expenses": len(list(db.execute(pending_expenses_stmt).scalars())),
         "pending_information_revenues": len(list(db.execute(pending_revenues_stmt).scalars())),
+        "expenses_without_document": len(list(db.execute(without_document_stmt).scalars())),
     }
 
 

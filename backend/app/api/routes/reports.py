@@ -63,6 +63,7 @@ _SUMMARY_LABELS = {
     "balance": "Saldo (R$)",
     "pending_information_expenses": "Despesas com informação pendente",
     "pending_information_revenues": "Receitas com informação pendente",
+    "expenses_without_document": "Despesas sem documento",
 }
 
 _DOCUMENTS_LABELS = {

@@ -3,13 +3,11 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_permission
 from app.core.rbac import Permission
-from app.models.enums import DocumentLinkStatus, TransactionType
-from app.models.expense import Expense
+from app.models.enums import TransactionType
 from app.schemas.finance import FinanceBalance, FinanceSummary
 from app.services.finance import calculator
 from app.services.reports import report_service
@@ -27,33 +25,27 @@ def finance_summary(
     """`start_date`/`end_date` scope the totals/balance to a period (used by the
     Financeiro screen's period filter); pending-information and missing-document
     counts stay campaign-wide since they flag data-quality issues, not a period."""
+    # expenses_without_document/pending counts are always campaign-wide data-quality
+    # flags, not scoped to a period — reused as-is from summary_report() below
+    # regardless of whether a date range narrows the totals.
+    summary = report_service.summary_report(db, campaign_id=campaign_id)
+
     if start_date is not None or end_date is not None:
         total_revenues = calculator.total_revenues(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
         total_expenses = calculator.total_expenses(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
         balance_value = total_revenues - total_expenses
-        pending_summary = report_service.summary_report(db, campaign_id=campaign_id)
-        pending_expenses = pending_summary["pending_information_expenses"]
-        pending_revenues = pending_summary["pending_information_revenues"]
     else:
-        summary = report_service.summary_report(db, campaign_id=campaign_id)
         total_revenues = summary["total_revenues"]
         total_expenses = summary["total_expenses"]
         balance_value = summary["balance"]
-        pending_expenses = summary["pending_information_expenses"]
-        pending_revenues = summary["pending_information_revenues"]
-
-    without_document_stmt = select(Expense).where(Expense.document_status != DocumentLinkStatus.ATTACHED)
-    if campaign_id is not None:
-        without_document_stmt = without_document_stmt.where(Expense.campaign_id == campaign_id)
-    expenses_without_document = len(list(db.execute(without_document_stmt).scalars()))
 
     return FinanceSummary(
         total_revenues=total_revenues,
         total_expenses=total_expenses,
         balance=balance_value,
-        pending_information_expenses=pending_expenses,
-        pending_information_revenues=pending_revenues,
-        expenses_without_document=expenses_without_document,
+        pending_information_expenses=summary["pending_information_expenses"],
+        pending_information_revenues=summary["pending_information_revenues"],
+        expenses_without_document=summary["expenses_without_document"],
     )
 
 
