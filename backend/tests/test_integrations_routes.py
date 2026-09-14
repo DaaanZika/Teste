@@ -77,6 +77,34 @@ def test_status_reflects_configured_backup(client, as_role, restore_backup_setti
     assert response.json()["backup"]["connected"] is True
 
 
+def test_status_queue_defaults_to_inline_not_connected(client, as_role):
+    settings = get_settings()
+    assert settings.queue_backend == "inline"  # the suite's default, unless another test changed it
+    as_role(Role.VIEWER)
+
+    response = client.get("/integrations/status")
+    body = response.json()["queue"]
+    assert body["connected"] is False
+    assert "inline" in body["detail"]
+
+
+def test_status_queue_reflects_real_redis_when_configured(client, as_role):
+    settings = get_settings()
+    original_backend = settings.queue_backend
+    original_url = settings.redis_url
+    settings.queue_backend = "redis"
+    settings.redis_url = "redis://localhost:6379/0"
+    try:
+        as_role(Role.VIEWER)
+        response = client.get("/integrations/status")
+        body = response.json()["queue"]
+        assert body["connected"] is True
+        assert body["detail"] is None
+    finally:
+        settings.queue_backend = original_backend
+        settings.redis_url = original_url
+
+
 def test_connect_requires_admin(client, as_role):
     as_role(Role.FINANCIAL)
     response = client.get("/integrations/google-drive/connect", follow_redirects=False)

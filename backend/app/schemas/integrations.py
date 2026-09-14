@@ -19,3 +19,4 @@ class IntegrationsStatusResponse(BaseModel):
     backup: IntegrationStatus
     database: IntegrationStatus
     ocr: IntegrationStatus
+    queue: IntegrationStatus

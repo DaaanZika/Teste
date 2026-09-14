@@ -62,10 +62,16 @@ export interface DocumentRead {
   extracted_payment_method: string | null
   possible_duplicate_of_id: string | null
   processing_error: string | null
+  storage_provider: string
+  backup_status: BackupStatus
+  backup_completed_at: string | null
+  backup_error: string | null
   items: DocumentItemRead[]
   created_at: string
   updated_at: string
 }
+
+export type BackupStatus = 'NOT_CONFIGURED' | 'PENDING' | 'COMPLETED' | 'FAILED'
 
 export interface DocumentUploadResponse {
   document: DocumentRead

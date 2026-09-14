@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db, require_permission
+from app.core.config import get_settings
 from app.core.rbac import Permission
 from app.integrations.storage_adapter import get_storage_provider_for_document
 from app.models.enums import DocumentStatus
@@ -71,22 +72,39 @@ def get_document_file(document_id: str, db: Session = Depends(get_db)) -> Respon
     )
 
 
+def _process_or_enqueue(document_id: str, db: Session, user_id: str) -> DocumentRead:
+    """QUEUE_BACKEND=redis (opt-in, see docker-compose.yml's `worker`
+    service): enqueues the job and returns immediately with the document
+    marked PROCESSING — the caller polls GET /documents/{id} for the final
+    status. QUEUE_BACKEND=inline (default, no Redis required): runs the
+    exact same pipeline synchronously and returns the finished document,
+    unchanged from V1's original behavior."""
+    settings = get_settings()
+    if settings.queue_backend == "redis":
+        from app.queue import redis_backend
+
+        document = document_service.mark_queued_for_processing(db, document_id)
+        redis_backend.enqueue_document_processing(document_id, user_id=user_id)
+        return DocumentRead.model_validate(document)
+
+    document = document_service.process_document(db, document_id, user_id=user_id)
+    return DocumentRead.model_validate(document)
+
+
 @router.post("/{document_id}/process", response_model=DocumentRead, dependencies=[_can_manage])
 def process_document(
     document_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
 ) -> DocumentRead:
-    document = document_service.process_document(db, document_id, user_id=user_id)
-    return DocumentRead.model_validate(document)
+    return _process_or_enqueue(document_id, db, user_id)
 
 
 @router.post("/{document_id}/ocr", response_model=DocumentRead, dependencies=[_can_manage])
 def run_document_ocr(
     document_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
 ) -> DocumentRead:
-    """Alias of /process: OCR and field extraction run as one pipeline step in V1
+    """Alias of /process: OCR and field extraction run as one pipeline step
     (see services.documents.document_service.process_document)."""
-    document = document_service.process_document(db, document_id, user_id=user_id)
-    return DocumentRead.model_validate(document)
+    return _process_or_enqueue(document_id, db, user_id)
 
 
 @router.patch("/{document_id}/correct", response_model=DocumentRead, dependencies=[_can_manage])

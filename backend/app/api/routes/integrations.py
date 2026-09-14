@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db, require_permission
 from app.core.config import get_settings
-from app.core.health import check_database
+from app.core.health import check_database, check_redis
 from app.core.rbac import Permission
 from app.models.enums import GmailSuggestionStatus
 from app.models.user import User
@@ -39,6 +39,7 @@ def integrations_status(db: Session = Depends(get_db)) -> IntegrationsStatusResp
     gmail_connection = google_tokens.get_active_connection(db, "gmail")
     db_check = check_database(db)
     ocr_available = is_tesseract_available()
+    redis_check = check_redis()  # None when QUEUE_BACKEND != "redis" — not required by current config
 
     return IntegrationsStatusResponse(
         google_oauth=IntegrationStatus(name="Google", connected=google_oauth.is_configured()),
@@ -62,6 +63,17 @@ def integrations_status(db: Session = Depends(get_db)) -> IntegrationsStatusResp
             name="OCR (Tesseract)",
             connected=ocr_available,
             detail=None if ocr_available else "Executável tesseract não encontrado",
+        ),
+        queue=IntegrationStatus(
+            name="Fila assíncrona",
+            connected=settings.queue_backend == "redis" and bool(redis_check and redis_check.healthy),
+            detail=(
+                None
+                if settings.queue_backend == "redis" and redis_check and redis_check.healthy
+                else "QUEUE_BACKEND=inline (processamento síncrono, padrão) — não requer Redis"
+                if settings.queue_backend != "redis"
+                else (redis_check.detail if redis_check else "REDIS_URL não configurado")
+            ),
         ),
     )
 

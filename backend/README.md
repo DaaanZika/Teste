@@ -288,9 +288,30 @@ baixa o anexo de verdade e roda pelo mesmo pipeline de upload manual
 `POST .../reject` descarta a sugestão sem tocar na caixa de entrada. Uma
 nova busca nunca sugere de novo o mesmo anexo (`app/services/integrations/gmail_service.py`).
 
+## Fila assíncrona (opcional)
+
+`QUEUE_BACKEND=inline` (padrão) roda o OCR de forma síncrona dentro da
+própria requisição de `POST /documents/{id}/process` — exatamente como a
+V1, sem exigir Redis. `QUEUE_BACKEND=redis` (exige `REDIS_URL`) faz esse
+mesmo endpoint só enfileirar o job e responder na hora com o documento em
+`PROCESSING`; um processo separado consome a fila e roda o mesmo pipeline:
+
+```bash
+QUEUE_BACKEND=redis REDIS_URL=redis://localhost:6379/0 python -m app.queue.worker
+```
+
+(no Docker Compose isso é o serviço `worker`, que só sobe com
+`docker compose --profile queue up`.) O worker nunca duplica a lógica de
+OCR: ele chama a mesma `document_service.process_document` que o modo
+`inline` chama diretamente — só *quando* ela roda muda. Uma falha em um
+job é logada e o worker segue para o próximo, nunca derruba o processo
+(`app/queue/worker.py`). `GET /integrations/status` reporta o estado real
+da fila (`queue`), incluindo se o Redis configurado está de fato
+alcançável.
+
 ## Próximos passos (fora do escopo desta fase)
 
 Ver `app/integrations/future/README.md`: exportação no formato oficial do
-TSE — sem código funcional ainda. Fila assíncrona (Redis + worker) e
-regras eleitorais versionadas também seguem pendentes (ver o histórico de
-commits/fases no topo deste repositório).
+TSE — sem código funcional ainda. Regras eleitorais versionadas também
+seguem pendentes (ver o histórico de commits/fases no topo deste
+repositório).

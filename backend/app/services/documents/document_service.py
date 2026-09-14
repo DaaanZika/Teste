@@ -167,6 +167,19 @@ def list_documents(
     return list(db.execute(stmt).scalars())
 
 
+def mark_queued_for_processing(db: Session, document_id: str) -> Document:
+    """Used by the QUEUE_BACKEND=redis route path (app/api/routes/documents.py):
+    marks the document PROCESSING and returns immediately — the actual OCR
+    pipeline runs later, out of the request/response cycle, in
+    app.queue.worker via the exact same `process_document` below that the
+    default synchronous ("inline") path calls directly."""
+    document = get_document(db, document_id)
+    document.status = DocumentStatus.PROCESSING
+    db.commit()
+    db.refresh(document)
+    return document
+
+
 def process_document(db: Session, document_id: str, *, user_id: str | None = None) -> Document:
     """Runs OCR + extraction for a document and persists the results.
 

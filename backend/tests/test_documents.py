@@ -3,6 +3,7 @@ import io
 import pytest
 from PIL import Image
 
+from app.core.config import get_settings
 from app.models.enums import DocumentStatus
 
 
@@ -81,6 +82,59 @@ def test_process_document_never_crashes_even_without_ocr_engine(client):
         DocumentStatus.HUMAN_REVIEW.value,
         DocumentStatus.POSSIBLE_DUPLICATE.value,
     )
+
+
+@pytest.fixture()
+def with_redis_queue_backend():
+    """QUEUE_BACKEND=redis against the real redis-server this sandbox runs
+    — the same discipline as everywhere else in this suite: no mocked
+    Redis, the actual round trip."""
+    settings = get_settings()
+    original_backend = settings.queue_backend
+    original_url = settings.redis_url
+    settings.queue_backend = "redis"
+    settings.redis_url = "redis://localhost:6379/0"
+    yield settings
+    settings.queue_backend = original_backend
+    settings.redis_url = original_url
+
+    import redis
+
+    from app.queue.redis_backend import QUEUE_KEY
+
+    redis.from_url("redis://localhost:6379/0").delete(QUEUE_KEY)
+
+
+def test_process_with_queue_backend_redis_enqueues_instead_of_running_inline(client, with_redis_queue_backend):
+    from app.queue.redis_backend import dequeue_blocking
+
+    content = _png_bytes(text_marker=10)
+    upload = client.post("/documents/upload", files={"file": ("fila.png", content, "image/png")})
+    document_id = upload.json()["document"]["id"]
+
+    response = client.post(f"/documents/{document_id}/process")
+    assert response.status_code == 200
+    body = response.json()
+    # Enqueued, not run synchronously — status is PROCESSING, not a
+    # terminal outcome, and nothing here ran OCR in-request.
+    assert body["status"] == DocumentStatus.PROCESSING.value
+
+    job = dequeue_blocking(timeout=2)
+    assert job == {"type": "document_processing", "document_id": document_id, "user_id": job["user_id"]}
+
+
+def test_process_with_default_inline_backend_runs_synchronously(client):
+    """Same assertion as test_process_document_never_crashes_even_without_ocr_engine
+    but explicit about the default: no queue_backend override here at all —
+    proves inline stays the default and returns a terminal status in the
+    same response, unchanged from V1."""
+    content = _png_bytes(text_marker=11)
+    upload = client.post("/documents/upload", files={"file": ("sincrono.png", content, "image/png")})
+    document_id = upload.json()["document"]["id"]
+
+    response = client.post(f"/documents/{document_id}/process")
+    assert response.status_code == 200
+    assert response.json()["status"] != DocumentStatus.PROCESSING.value
 
 
 def test_get_document_file_returns_original_bytes(client):

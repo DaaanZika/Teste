@@ -33,10 +33,27 @@ export const documentsApi = {
     }
   },
 
+  /**
+   * With the default QUEUE_BACKEND=inline the backend runs OCR
+   * synchronously and this call already returns a terminal status — the
+   * polling loop below never runs. With QUEUE_BACKEND=redis (opt-in, needs
+   * a running worker — see backend/README.md) the backend enqueues the job
+   * and returns immediately with status PROCESSING; this function then
+   * polls GET /documents/{id} until the worker finishes, so every caller
+   * gets the same "resolves once processing is done" contract either way.
+   */
   async process(id: string): Promise<DocumentRead> {
     try {
-      const { data } = await http.post<DocumentRead>(`/documents/${id}/process`)
-      return data
+      const { data: initial } = await http.post<DocumentRead>(`/documents/${id}/process`)
+      if (initial.status !== 'PROCESSING') return initial
+
+      const maxAttempts = 40 // ~48s at 1.2s intervals — generous for a single OCR pass
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1200))
+        const { data: current } = await http.get<DocumentRead>(`/documents/${id}`)
+        if (current.status !== 'PROCESSING') return current
+      }
+      return initial
     } catch (error) {
       throw toAppError(error)
     }
