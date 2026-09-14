@@ -18,14 +18,17 @@ um usuário em produção, isso precisa ser implementado.** Ficou fora desta
 fase por ser, na prática, uma segunda feature grande (multi-tenancy por
 linha), não uma extensão pequena do RBAC já feito.
 
-## Sem UI de administração no frontend
+## Sem UI de administração para usuários/campanhas/regras eleitorais
 
-O frontend não tem tela para: gerenciar usuários/papéis, criar/selecionar
-campanha, ou configurar Google OAuth — só o essencial (login/logout,
-status de autenticação) foi adicionado ao `Topbar`. As rotas de backend
-(`/users`, `/campaigns`) existem e são testadas, mas ainda sem interface.
+O frontend ainda não tem tela para: gerenciar usuários/papéis,
+criar/selecionar campanha, ou cadastrar/versionar uma regra eleitoral —
+as rotas de backend existem e são testadas (`/users`, `/campaigns`,
+`/compliance/rules`), mas só via API/`/docs` até aqui. As integrações
+Google (login, conectar Drive/Gmail, sugestões do Gmail) já têm UI
+própria em Configurações desde as FASES D–F.
 
-## Sem rate limiting no login
+## ~~Sem rate limiting no login~~ — resolvido na FASE H
 
-`POST /auth/google/callback` e `/auth/google/login` não têm limite de
-tentativas. Fica registrado para a fase de segurança (FASE H).
+`POST /auth/google/callback` e `/auth/google/login` agora têm limite de
+tentativas por IP (`app/core/rate_limit.py`, 20/60s e 10/60s
+respectivamente). Detalhes em `docs/audit/FASE-H-security-audit.md`.
