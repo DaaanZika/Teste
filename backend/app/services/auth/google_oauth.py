@@ -7,8 +7,8 @@ them every function here raises NotConfiguredError instead of pretending
 to work (PROMPT 3 §45/§52: Google integrations are optional and the app
 must never fake a result when they're off).
 
-Two purposes share this module and the same registered redirect URI (one
-Google Cloud Console entry, not two — see app/api/routes/auth.py and
+Three purposes share this module and the same registered redirect URI (one
+Google Cloud Console entry, not three — see app/api/routes/auth.py and
 app/api/routes/integrations.py for how the shared /auth/google/callback
 tells them apart via which state cookie matched):
 
@@ -17,6 +17,8 @@ tells them apart via which state cookie matched):
   - Connecting Google Drive (PROMPT 3 §11): drive.file scope,
     `access_type=offline` + `prompt=consent` to guarantee a refresh_token,
     since the backend needs to call the Drive API later, unattended.
+  - Connecting Gmail (PROMPT 3 §13): gmail.readonly scope, same
+    `offline`/`consent` reasoning — detection only, never send/delete.
 """
 from __future__ import annotations
 
@@ -34,6 +36,10 @@ USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
 
 LOGIN_SCOPES = "openid email profile"
 DRIVE_SCOPES = "openid email profile https://www.googleapis.com/auth/drive.file"
+# Read-only: this integration only ever detects and suggests candidate
+# attachments (PROMPT 3 §13) — it never sends, deletes, or modifies
+# anything in the connected mailbox.
+GMAIL_SCOPES = "openid email profile https://www.googleapis.com/auth/gmail.readonly"
 
 
 @dataclass

@@ -21,6 +21,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 STATE_COOKIE_NAME = "campanhas_oauth_state"
 DRIVE_STATE_COOKIE_NAME = "campanhas_oauth_state_drive"
+GMAIL_STATE_COOKIE_NAME = "campanhas_oauth_state_gmail"
 
 
 @router.get("/status", response_model=AuthStatus)
@@ -60,12 +61,20 @@ def google_login() -> RedirectResponse:
 
 @router.get("/google/callback")
 def google_callback(request: Request, code: str, state: str, db: Session = Depends(get_db)) -> RedirectResponse:
-    """One registered Google redirect URI serves two purposes, told apart by
-    which state cookie matches (see app/services/auth/google_oauth.py):
-    a login (STATE_COOKIE_NAME) or connecting Google Drive
-    (DRIVE_STATE_COOKIE_NAME, started from /integrations/google-drive/connect)."""
+    """One registered Google redirect URI serves three purposes, told apart
+    by which state cookie matches (see app/services/auth/google_oauth.py):
+    a login (STATE_COOKIE_NAME), connecting Google Drive
+    (DRIVE_STATE_COOKIE_NAME, started from /integrations/google-drive/connect),
+    or connecting Gmail (GMAIL_STATE_COOKIE_NAME, started from
+    /integrations/gmail/connect)."""
     if request.cookies.get(DRIVE_STATE_COOKIE_NAME) == state:
-        return _handle_drive_connect_callback(request, code, db)
+        return _handle_integration_connect_callback(
+            request, code, db, provider="google_drive", state_cookie_name=DRIVE_STATE_COOKIE_NAME
+        )
+    if request.cookies.get(GMAIL_STATE_COOKIE_NAME) == state:
+        return _handle_integration_connect_callback(
+            request, code, db, provider="gmail", state_cookie_name=GMAIL_STATE_COOKIE_NAME
+        )
     return _handle_login_callback(request, code, state, db)
 
 
@@ -98,30 +107,32 @@ def _handle_login_callback(request: Request, code: str, state: str, db: Session)
     return response
 
 
-def _handle_drive_connect_callback(request: Request, code: str, db: Session) -> RedirectResponse:
+def _handle_integration_connect_callback(
+    request: Request, code: str, db: Session, *, provider: str, state_cookie_name: str
+) -> RedirectResponse:
     settings = get_settings()
-    # Connecting Drive requires an already-authenticated ADMIN — enforced
-    # when /integrations/google-drive/connect was first requested, and
-    # re-checked here since this callback is reachable directly.
+    # Connecting an integration requires an already-authenticated ADMIN —
+    # enforced when /integrations/{provider}/connect was first requested,
+    # and re-checked here since this callback is reachable directly.
     user = resolve_current_user(request, db)
     if not role_has_permission(user.role, Permission.MANAGE_INTEGRATIONS):
-        raise UnauthorizedError("Apenas administradores podem conectar o Google Drive.")
+        raise UnauthorizedError(f"Apenas administradores podem conectar {provider}.")
 
     tokens = google_oauth.exchange_code_for_tokens(code)
     google_tokens.save_connection(
         db,
         user_id=user.id,
-        provider="google_drive",
+        provider=provider,
         scope=tokens.scope,
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
         expires_in_seconds=tokens.expires_in,
     )
-    record_audit(db, entity="integration", entity_id="google_drive", action=AuditAction.CREATE, user_id=user.id)
+    record_audit(db, entity="integration", entity_id=provider, action=AuditAction.CREATE, user_id=user.id)
     db.commit()
 
     response = RedirectResponse(f"{settings.frontend_url}/configuracoes", status_code=302)
-    response.delete_cookie(DRIVE_STATE_COOKIE_NAME)
+    response.delete_cookie(state_cookie_name)
     return response
 
 

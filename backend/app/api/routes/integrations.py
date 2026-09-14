@@ -4,19 +4,27 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_permission
+from app.api.deps import get_current_user_id, get_db, require_permission
 from app.core.config import get_settings
 from app.core.health import check_database
 from app.core.rbac import Permission
+from app.models.enums import GmailSuggestionStatus
 from app.models.user import User
+from app.schemas.document import DocumentUploadResponse, DocumentRead
+from app.schemas.gmail import GmailRejectRequest, GmailScanRequest, GmailScanResponse, GmailSuggestionRead
 from app.schemas.integrations import IntegrationStatus, IntegrationsStatusResponse
 from app.services.auth import google_oauth
-from app.services.integrations import google_tokens
+from app.services.integrations import gmail_service, google_tokens
 from app.services.ocr.engine import is_tesseract_available
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 DRIVE_STATE_COOKIE_NAME = "campanhas_oauth_state_drive"
+GMAIL_STATE_COOKIE_NAME = "campanhas_oauth_state_gmail"
+
+_can_manage_integrations = Depends(require_permission(Permission.MANAGE_INTEGRATIONS))
+_can_manage_documents = Depends(require_permission(Permission.MANAGE_DOCUMENTS))
+_can_view_documents = Depends(require_permission(Permission.VIEW_DOCUMENTS))
 
 
 @router.get(
@@ -42,7 +50,7 @@ def integrations_status(db: Session = Depends(get_db)) -> IntegrationsStatusResp
         gmail=IntegrationStatus(
             name="Gmail",
             connected=gmail_connection is not None,
-            detail="Não implementado nesta fase" if gmail_connection is None else None,
+            detail=None if gmail_connection else "Não conectado",
         ),
         backup=IntegrationStatus(
             name="Backup",
@@ -80,3 +88,74 @@ def connect_google_drive(user: User = Depends(require_permission(Permission.MANA
 def disconnect_google_drive(db: Session = Depends(get_db)) -> dict:
     google_tokens.revoke_connection(db, "google_drive")
     return {"success": True, "data": {"status": "disconnected"}}
+
+
+@router.get("/gmail/connect")
+def connect_gmail(user: User = Depends(require_permission(Permission.MANAGE_INTEGRATIONS))) -> RedirectResponse:
+    """ADMIN only: starts the incremental-consent flow for read-only Gmail
+    access (separate from login — see app/services/auth/google_oauth.py)."""
+    state = google_oauth.generate_state()
+    authorization_url = google_oauth.build_authorization_url(
+        state, scope=google_oauth.GMAIL_SCOPES, access_type="offline", prompt="consent"
+    )
+    settings = get_settings()
+    redirect = RedirectResponse(authorization_url, status_code=302)
+    redirect.set_cookie(
+        GMAIL_STATE_COOKIE_NAME, state, max_age=600, httponly=True, secure=not settings.debug, samesite="lax"
+    )
+    return redirect
+
+
+@router.post("/gmail/disconnect", dependencies=[_can_manage_integrations])
+def disconnect_gmail(db: Session = Depends(get_db)) -> dict:
+    google_tokens.revoke_connection(db, "gmail")
+    return {"success": True, "data": {"status": "disconnected"}}
+
+
+@router.post("/gmail/scan", response_model=GmailScanResponse, dependencies=[_can_manage_documents])
+def scan_gmail(payload: GmailScanRequest, db: Session = Depends(get_db)) -> GmailScanResponse:
+    """Detects candidate attachments — never imports anything by itself
+    (PROMPT 3 §13/§45). Safe to call repeatedly: already-seen attachments
+    are skipped, not duplicated."""
+    new_suggestions = gmail_service.scan_inbox(db, campaign_id=payload.campaign_id, max_results=payload.max_results)
+    return GmailScanResponse(new_suggestions=[GmailSuggestionRead.model_validate(s) for s in new_suggestions])
+
+
+@router.get("/gmail/suggestions", response_model=list[GmailSuggestionRead], dependencies=[_can_view_documents])
+def list_gmail_suggestions(
+    status: GmailSuggestionStatus | None = None, db: Session = Depends(get_db)
+) -> list[GmailSuggestionRead]:
+    suggestions = gmail_service.list_suggestions(db, status=status)
+    return [GmailSuggestionRead.model_validate(s) for s in suggestions]
+
+
+@router.post(
+    "/gmail/suggestions/{suggestion_id}/confirm",
+    response_model=DocumentUploadResponse,
+    dependencies=[_can_manage_documents],
+)
+def confirm_gmail_suggestion(
+    suggestion_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
+) -> DocumentUploadResponse:
+    """The only path by which a Gmail suggestion becomes a real Document —
+    downloads the attachment for real and runs it through the exact same
+    upload pipeline as a manual upload (validation, duplicate detection,
+    audit log included)."""
+    result = gmail_service.confirm_suggestion(db, suggestion_id, user_id=user_id)
+    return DocumentUploadResponse(
+        document=DocumentRead.model_validate(result.document),
+        possible_duplicate=result.possible_duplicate,
+        duplicate_reasons=result.duplicate_reasons,
+    )
+
+
+@router.post(
+    "/gmail/suggestions/{suggestion_id}/reject",
+    response_model=GmailSuggestionRead,
+    dependencies=[_can_manage_documents],
+)
+def reject_gmail_suggestion(
+    suggestion_id: str, payload: GmailRejectRequest, db: Session = Depends(get_db)
+) -> GmailSuggestionRead:
+    suggestion = gmail_service.reject_suggestion(db, suggestion_id, reason=payload.reason)
+    return GmailSuggestionRead.model_validate(suggestion)

@@ -287,6 +287,27 @@ export interface IntegrationsStatusResponse {
   ocr: IntegrationStatus
 }
 
+export type GmailSuggestionStatus = 'PENDING' | 'IMPORTED' | 'REJECTED'
+
+export interface GmailSuggestion {
+  id: string
+  gmail_message_id: string
+  sender: string | null
+  subject: string | null
+  received_at: string | null
+  attachment_filename: string
+  mime_type: string
+  campaign_id: string | null
+  document_id: string | null
+  status: GmailSuggestionStatus
+  rejected_reason: string | null
+  created_at: string
+}
+
+export interface GmailScanResponse {
+  new_suggestions: GmailSuggestion[]
+}
+
 /** The uniform error body returned by every handled backend failure. */
 export interface ApiErrorBody {
   success: false

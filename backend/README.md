@@ -131,8 +131,8 @@ backend/
 │   │   ├── reports/              # Agregação de dados para /reports
 │   │   └── audit/                # Log de auditoria (append-only)
 │   ├── rules/electoral/          # Regras eleitorais como dados (vazio na V1 — ver README lá)
-│   ├── integrations/             # Adapters plugáveis (storage local hoje) +
-│   │   └── future/               # Interfaces para Google Drive, Gmail, OAuth, TSE (NÃO implementadas)
+│   ├── integrations/             # Adapters plugáveis: storage local/Google Drive, OAuth, Gmail (leitura) +
+│   │   └── future/               # Interfaces para storage em nuvem genérico e exportação TSE (NÃO implementadas)
 │   └── utils/                    # Sanitização de arquivos, parsing de texto/data/moeda
 ├── storage/{originals,processed,temporary}/   # Arquivos locais
 ├── alembic/                      # Migrations do banco
@@ -174,6 +174,12 @@ backend/
 | GET | `/integrations/status` | Estado real de Google Drive, Gmail, backup, banco e OCR |
 | GET | `/integrations/google-drive/connect` | Inicia a conexão do Google Drive (somente ADMIN) |
 | POST | `/integrations/google-drive/disconnect` | Desconecta o Google Drive (somente ADMIN) |
+| GET | `/integrations/gmail/connect` | Inicia a conexão do Gmail, leitura apenas (somente ADMIN) |
+| POST | `/integrations/gmail/disconnect` | Desconecta o Gmail (somente ADMIN) |
+| POST | `/integrations/gmail/scan` | Busca anexos que parecem comprovante/nota fiscal — nunca importa sozinho |
+| GET | `/integrations/gmail/suggestions` | Lista sugestões detectadas (filtro `status`) |
+| POST | `/integrations/gmail/suggestions/{id}/confirm` | Confirma: baixa o anexo de verdade e cria o Documento |
+| POST | `/integrations/gmail/suggestions/{id}/reject` | Rejeita a sugestão — nunca toca a caixa de entrada |
 | POST | `/documents/upload` | Upload de documento (multipart) |
 | GET | `/documents` | Lista documentos (filtros: `status`, `campaign_id`) |
 | GET | `/documents/{id}` | Detalhe de um documento |
@@ -267,10 +273,24 @@ afetado (`app/services/documents/backup_service.py`).
 Sem nenhuma dessas variáveis configuradas, o sistema roda 100% local,
 exatamente como a V1.
 
+## Detecção de comprovantes no Gmail (opcional)
+
+Com o Gmail conectado (`GET /integrations/gmail/connect`, somente ADMIN,
+escopo `gmail.readonly` — nunca envia, apaga ou modifica nada na caixa de
+entrada), `POST /integrations/gmail/scan` procura e-mails com anexo cujo
+assunto/corpo sugere nota fiscal, recibo, fatura, boleto ou comprovante e
+grava uma sugestão `PENDING` por anexo (`GmailSuggestion`). Isso é só uma
+heurística de busca — nenhuma sugestão vira `Document` sozinha.
+
+Um humano decide: `POST /integrations/gmail/suggestions/{id}/confirm`
+baixa o anexo de verdade e roda pelo mesmo pipeline de upload manual
+(mesma validação, mesma detecção de duplicidade, mesmo log de auditoria);
+`POST .../reject` descarta a sugestão sem tocar na caixa de entrada. Uma
+nova busca nunca sugere de novo o mesmo anexo (`app/services/integrations/gmail_service.py`).
+
 ## Próximos passos (fora do escopo desta fase)
 
-Ver `app/integrations/future/README.md`: ingestão por e-mail (Gmail) e
-exportação no formato oficial do TSE — sem código funcional ainda.
-Fila assíncrona (Redis + worker) e regras eleitorais versionadas também
-seguem pendentes (ver o histórico de commits/fases no topo deste
-repositório).
+Ver `app/integrations/future/README.md`: exportação no formato oficial do
+TSE — sem código funcional ainda. Fila assíncrona (Redis + worker) e
+regras eleitorais versionadas também seguem pendentes (ver o histórico de
+commits/fases no topo deste repositório).

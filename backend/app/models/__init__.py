@@ -5,6 +5,7 @@ from app.models.category import Category
 from app.models.compliance import ComplianceAlert, ComplianceRule
 from app.models.document import Document, DocumentItem
 from app.models.expense import Expense
+from app.models.gmail_suggestion import GmailSuggestion
 from app.models.integration_connection import IntegrationConnection
 from app.models.processing_job import ProcessingJob
 from app.models.revenue import Revenue
@@ -22,6 +23,7 @@ __all__ = [
     "Document",
     "DocumentItem",
     "Expense",
+    "GmailSuggestion",
     "IntegrationConnection",
     "ProcessingJob",
     "Revenue",

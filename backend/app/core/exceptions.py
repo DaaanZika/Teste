@@ -92,6 +92,15 @@ class DuplicateDocumentError(AppError):
     requires_human_review = True
 
 
+class ConflictError(AppError):
+    """The request is well-formed but the target isn't in a state that
+    allows it (e.g. confirming a Gmail suggestion that was already
+    confirmed or rejected)."""
+
+    error_code = "CONFLICT"
+    status_code = status.HTTP_409_CONFLICT
+
+
 class DocumentProcessingError(AppError):
     error_code = "DOCUMENT_PROCESSING_FAILED"
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY

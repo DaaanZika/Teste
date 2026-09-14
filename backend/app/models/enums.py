@@ -99,6 +99,16 @@ class BackupStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class GmailSuggestionStatus(str, enum.Enum):
+    """A Gmail attachment detected as a possible receipt/invoice is never
+    imported automatically (PROMPT 3 §13/§45) — a human confirms or rejects
+    each suggestion explicitly."""
+
+    PENDING = "PENDING"
+    IMPORTED = "IMPORTED"
+    REJECTED = "REJECTED"
+
+
 class Role(str, enum.Enum):
     """RBAC roles (PROMPT 3 §8). Permission matrix lives in app/core/rbac.py,
     not scattered across routes — a role's actual capabilities are never

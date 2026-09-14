@@ -5,10 +5,10 @@ import { Alert } from '@/components/ui/Alert'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
-import { ErrorState, LoadingState } from '@/components/ui/States'
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
 import { useAuthStatus, useLogout } from '@/hooks/useAuthStatus'
 import { http } from '@/lib/http'
-import type { IntegrationStatus } from '@/types/api'
+import type { GmailSuggestion, IntegrationStatus } from '@/types/api'
 
 export function SettingsPage() {
   const authQuery = useAuthStatus()
@@ -19,17 +19,32 @@ export function SettingsPage() {
   })
   const logout = useLogout()
   const queryClient = useQueryClient()
-  const [disconnecting, setDisconnecting] = useState(false)
+  const [disconnectingDrive, setDisconnectingDrive] = useState(false)
+  const [disconnectingGmail, setDisconnectingGmail] = useState(false)
 
-  const isAdmin = authQuery.data?.user?.role === 'ADMIN'
+  const role = authQuery.data?.user?.role
+  const isAdmin = role === 'ADMIN'
+  // Everyone except VIEWER has MANAGE_DOCUMENTS (see app/core/rbac.py) —
+  // scanning/confirming/rejecting a Gmail suggestion creates a Document.
+  const canManageDocuments = !!role && role !== 'VIEWER'
 
   async function handleDisconnectDrive() {
-    setDisconnecting(true)
+    setDisconnectingDrive(true)
     try {
       await api.integrations.disconnectGoogleDrive()
       await queryClient.invalidateQueries({ queryKey: ['integrations', 'status'] })
     } finally {
-      setDisconnecting(false)
+      setDisconnectingDrive(false)
+    }
+  }
+
+  async function handleDisconnectGmail() {
+    setDisconnectingGmail(true)
+    try {
+      await api.integrations.disconnectGmail()
+      await queryClient.invalidateQueries({ queryKey: ['integrations', 'status'] })
+    } finally {
+      setDisconnectingGmail(false)
     }
   }
 
@@ -99,30 +114,55 @@ export function SettingsPage() {
 
               {isAdmin ? (
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-                  {integrationsQuery.data.google_drive.connected ? (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      loading={disconnecting}
-                      onClick={() => void handleDisconnectDrive()}
-                    >
-                      Desconectar Google Drive
-                    </Button>
-                  ) : integrationsQuery.data.google_oauth.connected ? (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        window.location.href = api.integrations.connectGoogleDriveUrl()
-                      }}
-                    >
-                      Conectar Google Drive
-                    </Button>
+                  {integrationsQuery.data.google_oauth.connected ? (
+                    <>
+                      {integrationsQuery.data.google_drive.connected ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          loading={disconnectingDrive}
+                          onClick={() => void handleDisconnectDrive()}
+                        >
+                          Desconectar Google Drive
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            window.location.href = api.integrations.connectGoogleDriveUrl()
+                          }}
+                        >
+                          Conectar Google Drive
+                        </Button>
+                      )}
+
+                      {integrationsQuery.data.gmail.connected ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          loading={disconnectingGmail}
+                          onClick={() => void handleDisconnectGmail()}
+                        >
+                          Desconectar Gmail
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            window.location.href = api.integrations.connectGmailUrl()
+                          }}
+                        >
+                          Conectar Gmail
+                        </Button>
+                      )}
+                    </>
                   ) : (
                     <Alert tone="info" className="w-full">
                       Configure <code className="font-mono">GOOGLE_CLIENT_ID</code>/
                       <code className="font-mono">GOOGLE_CLIENT_SECRET</code> no backend para poder conectar o Google
-                      Drive.
+                      Drive ou o Gmail.
                     </Alert>
                   )}
                 </div>
@@ -131,14 +171,121 @@ export function SettingsPage() {
               )}
 
               <Alert tone="info">
-                Gmail ainda não está implementado. Este sistema não é o CONTA+JE e não envia nem simula o envio de
-                dados ao TSE — nenhuma exportação aqui é uma prestação de contas oficial.
+                Este sistema não é o CONTA+JE e não envia nem simula o envio de dados ao TSE — nenhuma exportação
+                aqui é uma prestação de contas oficial.
               </Alert>
             </>
           ) : null}
         </CardBody>
       </Card>
+
+      {integrationsQuery.data?.gmail.connected ? <GmailSuggestionsCard canManage={canManageDocuments} /> : null}
     </div>
+  )
+}
+
+function GmailSuggestionsCard({ canManage }: { canManage: boolean }) {
+  const queryClient = useQueryClient()
+  const [scanning, setScanning] = useState(false)
+  const [actingOnId, setActingOnId] = useState<string | null>(null)
+
+  const suggestionsQuery = useQuery({
+    queryKey: ['integrations', 'gmail', 'suggestions', 'PENDING'],
+    queryFn: () => api.integrations.listGmailSuggestions('PENDING'),
+    staleTime: 15_000,
+  })
+
+  async function handleScan() {
+    setScanning(true)
+    try {
+      await api.integrations.scanGmail()
+      await queryClient.invalidateQueries({ queryKey: ['integrations', 'gmail', 'suggestions'] })
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  async function handleConfirm(suggestion: GmailSuggestion) {
+    setActingOnId(suggestion.id)
+    try {
+      await api.integrations.confirmGmailSuggestion(suggestion.id)
+      await queryClient.invalidateQueries({ queryKey: ['integrations', 'gmail', 'suggestions'] })
+      await queryClient.invalidateQueries({ queryKey: ['documents'] })
+    } finally {
+      setActingOnId(null)
+    }
+  }
+
+  async function handleReject(suggestion: GmailSuggestion) {
+    setActingOnId(suggestion.id)
+    try {
+      await api.integrations.rejectGmailSuggestion(suggestion.id)
+      await queryClient.invalidateQueries({ queryKey: ['integrations', 'gmail', 'suggestions'] })
+    } finally {
+      setActingOnId(null)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Comprovantes detectados no Gmail"
+        subtitle="Detecção apenas — nada é importado sem confirmação humana"
+        action={
+          canManage ? (
+            <Button variant="secondary" size="sm" loading={scanning} onClick={() => void handleScan()}>
+              Buscar novos
+            </Button>
+          ) : undefined
+        }
+      />
+      <CardBody className="flex flex-col gap-3">
+        {suggestionsQuery.isLoading ? <LoadingState /> : null}
+        {suggestionsQuery.isError ? <ErrorState onRetry={() => suggestionsQuery.refetch()} /> : null}
+        {suggestionsQuery.data && suggestionsQuery.data.length === 0 ? (
+          <EmptyState
+            icon="📬"
+            title="Nenhum comprovante pendente"
+            description='Clique em "Buscar novos" para procurar e-mails com anexos que parecem nota fiscal, recibo, fatura ou comprovante.'
+          />
+        ) : null}
+        {suggestionsQuery.data?.map((suggestion) => (
+          <div
+            key={suggestion.id}
+            className="flex flex-col gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <p className="font-medium text-slate-800">{suggestion.attachment_filename}</p>
+              <p className="text-xs text-slate-500">
+                {suggestion.subject ?? 'Sem assunto'} · {suggestion.sender ?? 'Remetente desconhecido'}
+              </p>
+            </div>
+            {canManage ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={actingOnId === suggestion.id}
+                  onClick={() => void handleReject(suggestion)}
+                >
+                  Rejeitar
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={actingOnId === suggestion.id}
+                  onClick={() => void handleConfirm(suggestion)}
+                >
+                  Confirmar importação
+                </Button>
+              </div>
+            ) : (
+              <Badge tone="neutral">Aguardando revisão</Badge>
+            )}
+          </div>
+        ))}
+      </CardBody>
+    </Card>
   )
 }
 
