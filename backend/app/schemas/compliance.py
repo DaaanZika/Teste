@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import AlertStatus, AlertType
+from app.models.enums import AlertStatus, AlertType, RuleSeverity
 
 
 class ComplianceAlertRead(BaseModel):
@@ -37,3 +37,40 @@ class ComplianceRuleRead(BaseModel):
     severity: str
     active: bool
     validation_logic: str | None
+    effective_from: date
+    effective_until: date | None
+    supersedes_id: str | None
+
+
+class ComplianceRuleCreate(BaseModel):
+    """First version of a new rule (ADMIN only). Every field here is
+    exactly what a human confirmed against an official source — nothing is
+    filled in from a guess (see app/rules/electoral/README.md)."""
+
+    rule_id: str
+    rule_name: str
+    effective_from: date
+    description: str | None = None
+    legal_source: str | None = None
+    article: str | None = None
+    paragraph: str | None = None
+    inciso: str | None = None
+    severity: RuleSeverity = RuleSeverity.INFO
+    validation_logic: str | None = None
+    election_year: int | None = None
+
+
+class ComplianceRuleSupersede(BaseModel):
+    """A new version of an existing rule_id (ADMIN only) — the current open
+    version is closed, never edited in place."""
+
+    rule_name: str
+    effective_from: date
+    description: str | None = None
+    legal_source: str | None = None
+    article: str | None = None
+    paragraph: str | None = None
+    inciso: str | None = None
+    severity: RuleSeverity = RuleSeverity.INFO
+    validation_logic: str | None = None
+    election_year: int | None = None

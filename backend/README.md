@@ -194,6 +194,10 @@ backend/
 | GET | `/finance/totals/{period,category,supplier}` | Agregações financeiras |
 | GET | `/reports/{summary,expenses,revenues,documents}` | Dados estruturados para relatórios |
 | GET | `/compliance/alerts`, `/compliance/rules` | Alertas e regras de conformidade |
+| GET | `/compliance/rules/{rule_id}/history` | Todas as versões de uma regra, mais antiga primeiro |
+| POST | `/compliance/rules` | Cria a 1ª versão de uma regra (somente ADMIN, sempre inativa) |
+| POST | `/compliance/rules/{rule_id}/supersede` | Nova versão de uma regra existente (somente ADMIN) |
+| POST | `/compliance/rules/{id}/activate`, `/deactivate` | Liga/desliga uma versão específica (somente ADMIN) |
 | GET | `/audit` | Log de auditoria (filtros: `entity`, `entity_id`) |
 
 A lista completa e interativa está em `/docs`.

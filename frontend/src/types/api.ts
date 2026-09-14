@@ -214,6 +214,13 @@ export interface ComplianceRuleRead {
   severity: string
   active: boolean
   validation_logic: string | null
+  /** Date range this specific version is/was in effect (YYYY-MM-DD). A
+   * rule_id can have several versions over time — effective_until null
+   * means "still current". */
+  effective_from: string
+  effective_until: string | null
+  /** id of the version this one replaced, if any. */
+  supersedes_id: string | null
 }
 
 export interface AuditLogRead {

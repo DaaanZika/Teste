@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from sqlalchemy import select
@@ -43,19 +44,36 @@ def register_validator(name: str, fn: Validator) -> None:
     VALIDATORS[name] = fn
 
 
-def get_active_rules(db: Session) -> list[ComplianceRule]:
-    stmt = select(ComplianceRule).where(ComplianceRule.active.is_(True))
+def get_active_rules(db: Session, *, reference_date: date | None = None) -> list[ComplianceRule]:
+    """Active rule VERSIONS in effect on `reference_date` (default: today).
+
+    A rule_id can have several rows over time (see
+    app/services/compliance/rule_registry.py) — this returns, per rule_id,
+    only the version whose [effective_from, effective_until] window covers
+    `reference_date`, so a document dated before a rule changed is judged
+    by the text that actually applied to it, not by today's version.
+    """
+    as_of = reference_date or date.today()
+    stmt = select(ComplianceRule).where(
+        ComplianceRule.active.is_(True),
+        ComplianceRule.effective_from <= as_of,
+        (ComplianceRule.effective_until.is_(None)) | (ComplianceRule.effective_until >= as_of),
+    )
     return list(db.execute(stmt).scalars())
 
 
-def run_active_rules(db: Session, context: dict[str, Any]) -> list[RuleViolation]:
-    """Runs every active, source-verified rule against `context` and returns violations.
+def run_active_rules(db: Session, context: dict[str, Any], *, reference_date: date | None = None) -> list[RuleViolation]:
+    """Runs every active, source-verified rule version in effect on
+    `reference_date` (default: today) against `context` and returns
+    violations. Pass the transaction's own date (e.g. an expense's `date`)
+    to judge it against the rule that was actually law then — falling back
+    to today only when no such date is available.
 
     Returns an empty list whenever no rules are active — which is the
     expected state for V1 until rules are confirmed and entered.
     """
     violations: list[RuleViolation] = []
-    for rule in get_active_rules(db):
+    for rule in get_active_rules(db, reference_date=reference_date):
         validator = VALIDATORS.get(rule.validation_logic or "")
         if validator is None:
             logger.warning(

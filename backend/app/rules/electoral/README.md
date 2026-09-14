@@ -20,14 +20,38 @@ por uma pessoa responsável.
 
 ## Como uma regra passa a valer
 
-1. A regra é inserida na tabela `compliance_rules` (via migration de dados
-   ou endpoint administrativo futuro) com `active=False`.
+1. A regra é inserida via `POST /compliance/rules` (ADMIN, ver
+   `app/services/compliance/rule_registry.py::create_rule`) com
+   `active=False`.
 2. Um validador correspondente ao `validation_logic` da regra é
    implementado e registrado em
    `app/services/compliance/engine.py::VALIDATORS`.
-3. Após revisão humana confirmando a fonte oficial, a regra é ativada
-   (`active=True`). O motor (`run_active_rules`) passa a executá-la
-   automaticamente — nenhuma outra mudança de código é necessária.
+3. Após revisão humana confirmando a fonte oficial, a regra é ativada via
+   `POST /compliance/rules/{id}/activate` (`active=True`). O motor
+   (`run_active_rules`) passa a executá-la automaticamente — nenhuma outra
+   mudança de código é necessária.
+
+## Versionamento: uma regra nunca é editada, só substituída
+
+Cada linha em `compliance_rules` é uma **versão** de uma regra, válida
+num intervalo de datas (`effective_from`/`effective_until`). Quando uma
+resolução do TSE muda o texto, o limite ou a citação de uma regra
+existente, isso nunca vira um `UPDATE` na linha antiga — é sempre
+`POST /compliance/rules/{rule_id}/supersede` (ADMIN,
+`rule_registry.supersede_rule`), que:
+
+- fecha a versão atual definindo seu `effective_until` (o dia anterior ao
+  início da nova versão);
+- insere uma linha nova, com `supersedes_id` apontando para a versão
+  anterior, sempre `active=False` até revisão humana explícita.
+
+A versão antiga nunca é apagada nem tem seu conteúdo jurídico alterado —
+isso é o que permite julgar corretamente um documento datado de antes da
+mudança: `GET /compliance/rules/{rule_id}/history` mostra a cadeia
+completa, mais antiga primeiro, e o motor
+(`app/services/compliance/engine.py::get_active_rules`) escolhe a versão
+cujo intervalo cobre a data do documento/lançamento sendo validado — não a
+versão vigente hoje.
 
 ## Por que a arquitetura existe antes das regras
 
