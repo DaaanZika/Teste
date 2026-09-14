@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PlusIcon, SearchIcon } from '@/components/icons'
+import { AccountMenu } from '@/components/layout/AccountMenu'
 import { Button } from '@/components/ui/Button'
 import { useQuickAdd } from '@/state/QuickAddContext'
 
@@ -37,6 +38,8 @@ export function Topbar({ title }: { title: string }) {
         <span className="hidden sm:inline">Adicionar Gasto</span>
         <span className="sm:hidden">Gasto</span>
       </Button>
+
+      <AccountMenu />
     </header>
   )
 }

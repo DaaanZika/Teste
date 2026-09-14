@@ -49,6 +49,28 @@ class NotFoundError(AppError):
     status_code = status.HTTP_404_NOT_FOUND
 
 
+class UnauthorizedError(AppError):
+    """Not authenticated at all (no/invalid/expired session)."""
+
+    error_code = "UNAUTHORIZED"
+    status_code = status.HTTP_401_UNAUTHORIZED
+
+
+class ForbiddenError(AppError):
+    """Authenticated, but the role lacks the required permission."""
+
+    error_code = "FORBIDDEN"
+    status_code = status.HTTP_403_FORBIDDEN
+
+
+class NotConfiguredError(AppError):
+    """An optional integration (Google OAuth, Drive, Gmail, ...) was used
+    without the required configuration. Never silently no-ops or fakes success."""
+
+    error_code = "NOT_CONFIGURED"
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+
 class ValidationFailedError(AppError):
     error_code = "VALIDATION_FAILED"
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY

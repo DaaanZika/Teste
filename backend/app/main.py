@@ -12,7 +12,19 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import audit, compliance, documents, expenses, finance, health, reports, revenues
+from app.api.routes import (
+    audit,
+    auth,
+    campaigns,
+    compliance,
+    documents,
+    expenses,
+    finance,
+    health,
+    reports,
+    revenues,
+    users,
+)
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
@@ -23,18 +35,19 @@ configure_logging()
 app = FastAPI(
     title=settings.app_name,
     description=(
-        "Backend V1 (local) para organização financeira e documental de campanhas "
-        "eleitorais. Roda inteiramente local nesta fase: sem Docker, sem Google Drive/Gmail/"
-        "OAuth, sem serviços de nuvem. Ver app/integrations/future/ para integrações planejadas."
+        "Organização financeira e documental de campanhas eleitorais — assistente de "
+        "organização, conferência e auditoria. Não é o CONTA+JE e não substitui a "
+        "prestação de contas oficial ao TSE. Roda 100% local por padrão; Google OAuth, "
+        "Google Drive, Gmail e Redis são integrações opcionais (ver app/integrations/)."
     ),
-    version="0.1.0",
+    version="0.2.0",
 )
 
-# Local-only V1: CORS is permissive by default since there is no cloud
-# deployment yet. Tighten this before exposing the API beyond localhost.
+# Credentialed CORS (session cookies) requires an explicit origin allowlist —
+# a wildcard "*" is rejected by browsers once allow_credentials=True.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,6 +56,9 @@ app.add_middleware(
 register_exception_handlers(app)
 
 app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(campaigns.router)
 app.include_router(documents.router)
 app.include_router(expenses.router)
 app.include_router(revenues.router)

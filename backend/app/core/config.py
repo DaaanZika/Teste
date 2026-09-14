@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     environment: str = "local"
     debug: bool = True
 
+    # CORS. Comma-separated origins allowed to call this API with
+    # credentials (cookies). "*" is intentionally never accepted here:
+    # browsers reject a wildcard origin combined with credentialed
+    # requests, and session cookies (auth_provider="google") depend on
+    # credentialed cross-origin requests working correctly.
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
     # Database. Defaults to local SQLite; set DATABASE_URL to a
     # postgresql+psycopg://... URL later to migrate without code changes.
     database_url: str = f"sqlite:///{BASE_DIR / 'storage' / 'app.db'}"
@@ -57,6 +68,8 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_redirect_uri: str | None = None
+    # Where /auth/google/callback sends the browser after a successful login.
+    frontend_url: str = "http://localhost:5173"
 
     # Cloud storage (used only when storage_provider != "local", see
     # app/integrations/storage_adapter.py). backup_storage_provider is

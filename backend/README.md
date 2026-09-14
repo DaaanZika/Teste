@@ -165,6 +165,12 @@ backend/
 | --- | --- | --- |
 | GET | `/health` | Liveness — processo no ar (não checa dependências) |
 | GET | `/ready` | Readiness — checa banco (e Redis, se `QUEUE_BACKEND=redis`) |
+| GET | `/auth/status` | Nunca exige sessão; diz se há login e se Google está configurado |
+| GET | `/auth/google/login`, `/auth/google/callback` | Fluxo OAuth (exige `GOOGLE_CLIENT_ID`/`SECRET`) |
+| POST | `/auth/logout` | Revoga a sessão atual |
+| GET | `/auth/me` | Usuário autenticado |
+| GET | `/users`, `PATCH /users/{id}` | Gestão de usuários (somente ADMIN) |
+| GET/POST/PUT | `/campaigns`, `/campaigns/{id}` | Campanhas (múltiplas campanhas, ver seção RBAC abaixo) |
 | POST | `/documents/upload` | Upload de documento (multipart) |
 | GET | `/documents` | Lista documentos (filtros: `status`, `campaign_id`) |
 | GET | `/documents/{id}` | Detalhe de um documento |
@@ -182,6 +188,36 @@ backend/
 | GET | `/audit` | Log de auditoria (filtros: `entity`, `entity_id`) |
 
 A lista completa e interativa está em `/docs`.
+
+## Autenticação e permissões (RBAC)
+
+Dois modos, escolhidos por `AUTH_PROVIDER`:
+
+- **`local`** (padrão): sem login, exatamente como a V1. Um único
+  operador local é criado automaticamente com papel `ADMIN` — todas as
+  permissões liberadas, nada muda no comportamento anterior.
+- **`google`**: login real via Google OAuth (`app/services/auth/`). No
+  primeiro login o usuário é criado com o papel mais restrito
+  (`VIEWER`); um `ADMIN` precisa promovê-lo em `PATCH /users/{id}`.
+  Sem `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REDIRECT_URI`
+  configurados, os endpoints de login retornam `503 NOT_CONFIGURED` —
+  nunca simulam um login bem-sucedido.
+
+Papéis e permissões (`app/core/rbac.py`):
+
+| Papel | Pode |
+| --- | --- |
+| `ADMIN` | Tudo, incluindo gerenciar usuários e regras eleitorais |
+| `CAMPAIGN_MANAGER` | Gerenciar campanha, despesas, receitas, documentos |
+| `FINANCIAL` | Lançar despesas/receitas, gerenciar documentos |
+| `ACCOUNTANT` | Revisar/corrigir documentos, sem originar lançamentos |
+| `VIEWER` | Somente visualizar |
+
+**Limitação conhecida desta fase:** o RBAC controla *o que* um papel pode
+fazer, mas ainda não restringe *quais campanhas* um usuário enxerga —
+qualquer usuário autenticado vê dados de todas as campanhas. Escopo por
+campanha (`campaign_members`) é uma funcionalidade separada, ainda não
+implementada — ver `docs/audit/`.
 
 ## Tratamento de erros
 

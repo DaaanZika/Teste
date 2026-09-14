@@ -14,9 +14,15 @@ class Campaign(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     candidate_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    candidate_document: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    campaign_cnpj: Mapped[str | None] = mapped_column(String(20), nullable=True)
     election_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    election_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     office: Mapped[str | None] = mapped_column(String(255), nullable=True)
     party: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="campaign")  # noqa: F821
     expenses: Mapped[list["Expense"]] = relationship(back_populates="campaign")  # noqa: F821

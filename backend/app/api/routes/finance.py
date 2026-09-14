@@ -6,14 +6,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_permission
+from app.core.rbac import Permission
 from app.models.enums import DocumentLinkStatus, TransactionType
 from app.models.expense import Expense
 from app.schemas.finance import FinanceBalance, FinanceSummary
 from app.services.finance import calculator
 from app.services.reports import report_service
 
-router = APIRouter(prefix="/finance", tags=["finance"])
+router = APIRouter(prefix="/finance", tags=["finance"], dependencies=[Depends(require_permission(Permission.VIEW_FINANCE))])
 
 
 @router.get("/summary", response_model=FinanceSummary)

@@ -251,6 +251,27 @@ export interface RevenueReportRow {
   status: RevenueStatus
 }
 
+export type Role = 'ADMIN' | 'CAMPAIGN_MANAGER' | 'FINANCIAL' | 'ACCOUNTANT' | 'VIEWER'
+
+export interface UserRead {
+  id: string
+  name: string
+  email: string | null
+  google_id: string | null
+  avatar: string | null
+  role: Role
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AuthStatus {
+  auth_provider: string
+  google_configured: boolean
+  authenticated: boolean
+  user: UserRead | null
+}
+
 /** The uniform error body returned by every handled backend failure. */
 export interface ApiErrorBody {
   success: false

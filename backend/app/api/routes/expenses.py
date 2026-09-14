@@ -3,15 +3,19 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user_id, get_db
+from app.api.deps import get_current_user_id, get_db, require_permission
+from app.core.rbac import Permission
 from app.models.enums import ExpenseStatus
 from app.schemas.expense import ExpenseCreate, ExpenseQuickCreate, ExpenseRead, ExpenseUpdate
 from app.services.finance import expense_service
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
+_can_manage = Depends(require_permission(Permission.MANAGE_FINANCE))
+_can_view = Depends(require_permission(Permission.VIEW_FINANCE))
 
-@router.post("", response_model=ExpenseRead)
+
+@router.post("", response_model=ExpenseRead, dependencies=[_can_manage])
 def create_expense(
     payload: ExpenseCreate, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
 ) -> ExpenseRead:
@@ -19,7 +23,7 @@ def create_expense(
     return ExpenseRead.model_validate(expense)
 
 
-@router.post("/quick", response_model=ExpenseRead)
+@router.post("/quick", response_model=ExpenseRead, dependencies=[_can_manage])
 def create_quick_expense(
     payload: ExpenseQuickCreate, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
 ) -> ExpenseRead:
@@ -29,7 +33,7 @@ def create_quick_expense(
     return ExpenseRead.model_validate(expense)
 
 
-@router.get("", response_model=list[ExpenseRead])
+@router.get("", response_model=list[ExpenseRead], dependencies=[_can_view])
 def list_expenses(
     campaign_id: str | None = None, status: ExpenseStatus | None = None, db: Session = Depends(get_db)
 ) -> list[ExpenseRead]:
@@ -37,13 +41,13 @@ def list_expenses(
     return [ExpenseRead.model_validate(e) for e in expenses]
 
 
-@router.get("/{expense_id}", response_model=ExpenseRead)
+@router.get("/{expense_id}", response_model=ExpenseRead, dependencies=[_can_view])
 def get_expense(expense_id: str, db: Session = Depends(get_db)) -> ExpenseRead:
     expense = expense_service.get_expense(db, expense_id)
     return ExpenseRead.model_validate(expense)
 
 
-@router.put("/{expense_id}", response_model=ExpenseRead)
+@router.put("/{expense_id}", response_model=ExpenseRead, dependencies=[_can_manage])
 def update_expense(
     expense_id: str,
     payload: ExpenseUpdate,

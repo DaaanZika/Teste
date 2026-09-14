@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_permission
+from app.core.rbac import Permission
 from app.models.compliance import ComplianceAlert, ComplianceRule
 from app.models.enums import AlertStatus
 from app.schemas.compliance import ComplianceAlertRead, ComplianceRuleRead
 
-router = APIRouter(prefix="/compliance", tags=["compliance"])
+router = APIRouter(
+    prefix="/compliance", tags=["compliance"], dependencies=[Depends(require_permission(Permission.VIEW_REPORTS))]
+)
 
 
 @router.get("/alerts", response_model=list[ComplianceAlertRead])

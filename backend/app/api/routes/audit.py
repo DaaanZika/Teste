@@ -3,10 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_permission
+from app.core.rbac import Permission
 from app.schemas.audit import AuditLogRead
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[Depends(require_permission(Permission.VIEW_AUDIT))])
 
 
 @router.get("", response_model=list[AuditLogRead])

@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user_id, get_db
+from app.api.deps import get_current_user_id, get_db, require_permission
+from app.core.rbac import Permission
 from app.integrations.storage_adapter import get_storage_provider
 from app.models.enums import DocumentStatus
 from app.schemas.document import DocumentCorrection, DocumentRead, DocumentUploadResponse
@@ -12,8 +13,11 @@ from app.services.documents import document_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
+_can_manage = Depends(require_permission(Permission.MANAGE_DOCUMENTS))
+_can_view = Depends(require_permission(Permission.VIEW_DOCUMENTS))
 
-@router.post("/upload", response_model=DocumentUploadResponse)
+
+@router.post("/upload", response_model=DocumentUploadResponse, dependencies=[_can_manage])
 async def upload_document(
     file: UploadFile = File(...),
     campaign_id: str | None = Form(default=None),
@@ -36,7 +40,7 @@ async def upload_document(
     )
 
 
-@router.get("", response_model=list[DocumentRead])
+@router.get("", response_model=list[DocumentRead], dependencies=[_can_view])
 def list_documents(
     status: DocumentStatus | None = None,
     campaign_id: str | None = None,
@@ -46,13 +50,13 @@ def list_documents(
     return [DocumentRead.model_validate(d) for d in documents]
 
 
-@router.get("/{document_id}", response_model=DocumentRead)
+@router.get("/{document_id}", response_model=DocumentRead, dependencies=[_can_view])
 def get_document(document_id: str, db: Session = Depends(get_db)) -> DocumentRead:
     document = document_service.get_document(db, document_id)
     return DocumentRead.model_validate(document)
 
 
-@router.get("/{document_id}/file")
+@router.get("/{document_id}/file", dependencies=[_can_view])
 def get_document_file(document_id: str, db: Session = Depends(get_db)) -> Response:
     """Streams the untouched original file so the frontend can display it
     (PROMPT 2 §24 document viewer). The original is never modified on disk;
@@ -67,7 +71,7 @@ def get_document_file(document_id: str, db: Session = Depends(get_db)) -> Respon
     )
 
 
-@router.post("/{document_id}/process", response_model=DocumentRead)
+@router.post("/{document_id}/process", response_model=DocumentRead, dependencies=[_can_manage])
 def process_document(
     document_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
 ) -> DocumentRead:
@@ -75,7 +79,7 @@ def process_document(
     return DocumentRead.model_validate(document)
 
 
-@router.post("/{document_id}/ocr", response_model=DocumentRead)
+@router.post("/{document_id}/ocr", response_model=DocumentRead, dependencies=[_can_manage])
 def run_document_ocr(
     document_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
 ) -> DocumentRead:
@@ -85,7 +89,7 @@ def run_document_ocr(
     return DocumentRead.model_validate(document)
 
 
-@router.patch("/{document_id}/correct", response_model=DocumentRead)
+@router.patch("/{document_id}/correct", response_model=DocumentRead, dependencies=[_can_manage])
 def correct_document(
     document_id: str,
     correction: DocumentCorrection,

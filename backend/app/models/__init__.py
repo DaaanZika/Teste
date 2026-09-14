@@ -7,6 +7,7 @@ from app.models.document import Document, DocumentItem
 from app.models.expense import Expense
 from app.models.processing_job import ProcessingJob
 from app.models.revenue import Revenue
+from app.models.session import Session
 from app.models.supplier import Supplier
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -22,6 +23,7 @@ __all__ = [
     "Expense",
     "ProcessingJob",
     "Revenue",
+    "Session",
     "Supplier",
     "Transaction",
     "User",

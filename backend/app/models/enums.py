@@ -83,3 +83,17 @@ class AuditAction(str, enum.Enum):
     STATUS_CHANGE = "STATUS_CHANGE"
     MANUAL_CORRECTION = "MANUAL_CORRECTION"
     LINK_DOCUMENT = "LINK_DOCUMENT"
+    LOGIN = "LOGIN"
+    LOGOUT = "LOGOUT"
+
+
+class Role(str, enum.Enum):
+    """RBAC roles (PROMPT 3 §8). Permission matrix lives in app/core/rbac.py,
+    not scattered across routes — a role's actual capabilities are never
+    assumed at the call site."""
+
+    ADMIN = "ADMIN"
+    CAMPAIGN_MANAGER = "CAMPAIGN_MANAGER"
+    FINANCIAL = "FINANCIAL"
+    ACCOUNTANT = "ACCOUNTANT"
+    VIEWER = "VIEWER"

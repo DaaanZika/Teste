@@ -1,4 +1,5 @@
 import { auditApi } from '@/api/audit'
+import { authApi } from '@/api/auth'
 import { complianceApi } from '@/api/compliance'
 import { documentsApi } from '@/api/documents'
 import { expensesApi } from '@/api/expenses'
@@ -13,6 +14,7 @@ import { revenuesApi } from '@/api/revenues'
  * file.
  */
 export const api = {
+  auth: authApi,
   documents: documentsApi,
   expenses: expensesApi,
   revenues: revenuesApi,
