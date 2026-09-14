@@ -103,6 +103,9 @@ uvicorn app.main:app --reload
 - Documentação interativa (Swagger): http://127.0.0.1:8000/docs
 - Especificação OpenAPI: http://127.0.0.1:8000/openapi.json
 
+Para rodar via Docker (dev ou produção) em vez de `uvicorn` direto, ver
+`../DEPLOYMENT.md`.
+
 ## Testes
 
 ```bash
@@ -118,28 +121,35 @@ da API.
 
 ## Arquitetura
 
+Visão completa (com diagrama) em `../ARCHITECTURE.md`. Resumo da árvore:
+
 ```text
 backend/
 ├── app/
 │   ├── main.py                 # App FastAPI, CORS, exception handlers, rotas
-│   ├── api/routes/              # Endpoints HTTP (health, documents, expenses, ...)
-│   ├── core/                    # Config, banco (SQLAlchemy), erros, auth local
+│   ├── api/routes/              # Endpoints HTTP (um arquivo por recurso)
+│   ├── core/                    # Config, banco, erros, auth/sessão, RBAC, rate limiting
 │   ├── models/                  # Tabelas (SQLAlchemy ORM)
 │   ├── schemas/                 # Contratos de request/response (Pydantic)
 │   ├── services/
 │   │   ├── ocr/                 # Motor Tesseract, extração de campos, confiança
 │   │   ├── documents/            # Storage, hashing, duplicidade, pipeline de documento
 │   │   ├── finance/              # Calculadora financeira (Decimal), parser de texto livre
-│   │   ├── compliance/           # Motor de regras (arquitetura; regras vazias na V1)
-│   │   ├── reports/              # Agregação de dados para /reports
-│   │   └── audit/                # Log de auditoria (append-only)
-│   ├── rules/electoral/          # Regras eleitorais como dados (vazio na V1 — ver README lá)
-│   ├── integrations/             # Adapters plugáveis: storage local/Google Drive, OAuth, Gmail (leitura) +
-│   │   └── future/               # Interfaces para storage em nuvem genérico e exportação TSE (NÃO implementadas)
+│   │   ├── compliance/           # Motor de regras + registro versionado (ELECTORAL_RULES.md)
+│   │   ├── reports/              # Agregação para /reports + exportação CSV/XLSX/PDF
+│   │   ├── audit/                # Log de auditoria (append-only)
+│   │   ├── auth/                 # Sessão + Google OAuth
+│   │   ├── integrations/         # Tokens OAuth compartilhados (Drive/Gmail) + serviço Gmail
+│   │   └── backup/               # Backup/restauração (BACKUP.md)
+│   ├── rules/electoral/          # Regras eleitorais como dados (vazio por desenho)
+│   ├── integrations/             # StorageProvider: local ou Google Drive +
+│   │   └── future/               # Interfaces para storage genérico e exportação TSE (NÃO implementadas)
+│   ├── queue/                    # Fila opcional (Redis) para processamento de OCR
 │   └── utils/                    # Sanitização de arquivos, parsing de texto/data/moeda
 ├── storage/{originals,processed,temporary}/   # Arquivos locais
+├── backups/                      # Backups locais (nunca commitado — BACKUP.md)
 ├── alembic/                      # Migrations do banco
-├── tests/
+├── tests/                        # 216 testes, rodados contra SQLite e Postgres reais
 └── requirements.txt
 ```
 
@@ -148,21 +158,22 @@ backend/
 - **`services/ocr` nunca é chamado diretamente pelas rotas** — apenas por
   `services/documents/document_service.py`, que orquestra todo o
   pipeline (upload → hash → duplicidade → OCR → extração → validação →
-  banco) descrito no PROMPT 1.
+  banco).
 - **`finance/calculator.py` é a única fonte de verdade matemática.** Nenhuma
-  rota, serviço ou (futuramente) frontend deve recalcular saldo, total ou
-  percentual por conta própria. Todo valor monetário usa `Decimal`, nunca
-  `float`.
-- **`integrations/`** isola tudo que hoje é local (`LocalStorage`,
-  `LocalAuthProvider`) atrás de uma interface. As integrações futuras
-  (`app/integrations/future/`) já têm a assinatura esperada, mas lançam
-  `NotImplementedError` — nada de rede, credenciais ou SDKs de nuvem
-  nesta fase.
-- **`rules/electoral/` e `compliance_rules` começam vazios.** Regras são
-  dados, não código: nenhum valor, prazo, artigo ou limite legal foi
-  inventado. Ativar uma regra no futuro não exige reescrever o backend.
+  rota, serviço ou o frontend recalcula saldo, total ou percentual por
+  conta própria. Todo valor monetário usa `Decimal`, nunca `float`.
+- **`integrations/`** isola local vs. Google Drive atrás de uma única
+  interface (`StorageProvider`) — trocar o provider não muda nenhum
+  service que salva/lê documentos.
+- **`rules/electoral/` e `compliance_rules` começam vazios e continuam
+  vazios.** Regras são dados, não código: nenhum valor, prazo, artigo ou
+  limite legal foi inventado, em nenhuma fase deste projeto. Ver
+  `ELECTORAL_RULES.md`.
 
 ## Endpoints principais
+
+Mapa completo por recurso em `API.md`; o contrato exato de cada rota
+(sempre sincronizado com o código) está em `/docs` com o servidor no ar.
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
@@ -252,7 +263,11 @@ Nenhum erro derruba a API. Toda falha de domínio retorna:
 Stack traces nunca são expostos ao cliente; erros inesperados são
 logados no servidor (ver `app/core/exceptions.py`).
 
-## Segurança local (V1)
+## Segurança
+
+Postura completa (auth, RBAC, CSRF, rate limiting, segredos, o que foi
+auditado e o que não teve achado) em `../SECURITY.md`. Resumo do que toca
+upload diretamente:
 
 - Extensão e MIME type validados na entrada (`.jpg`, `.jpeg`, `.png`,
   `.webp`, `.pdf`).

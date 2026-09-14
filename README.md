@@ -41,10 +41,16 @@ independente com SQLite local, exatamente como na V1.
 
 ## Documentação
 
-- `docs/audit/` — auditorias de arquitetura feitas antes de cada fase de evolução.
-- `backend/app/rules/electoral/README.md` — por que a base de regras eleitorais começa vazia (e como o versionamento funciona).
-- `backend/app/integrations/future/README.md` — o que ainda é planejado (exportação TSE) vs. o que já é real (Google OAuth, Drive, Gmail — ver `backend/README.md`).
+- `ARCHITECTURE.md` — mapa do sistema: backend, frontend, storage, filas, auth.
+- `SECURITY.md` — postura de segurança (auth, RBAC, CSRF, rate limiting, segredos).
+- `DEPLOYMENT.md` — como rodar (sem Docker, Docker dev, Docker produção) e o checklist antes de ir ao ar.
+- `backend/API.md` — mapa da API por recurso (o contrato completo vive em `/docs`, gerado pelo FastAPI).
+- `backend/DATABASE.md` — SQLite ↔ Postgres, como rodar a suíte contra os dois.
 - `backend/BACKUP.md` — backup e restauração (banco + documentos), com a restauração de fato verificada, não assumida.
+- `backend/ELECTORAL_RULES.md` — o que este sistema é e não é em relação ao TSE/CONTA+JE.
+- `docs/audit/` — auditorias feitas antes/durante cada fase de evolução (achados reais, não só "tudo certo").
+- `backend/app/rules/electoral/README.md` — a mesma explicação de `ELECTORAL_RULES.md`, do ponto de vista de quem for cadastrar uma regra.
+- `backend/app/integrations/future/README.md` — o que ainda é planejado (exportação TSE) vs. o que já é real (Google OAuth, Drive, Gmail — ver `backend/README.md`).
 
 ## Princípios do projeto
 

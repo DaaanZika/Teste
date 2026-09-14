@@ -53,10 +53,23 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       QUEUE_BACKEND: ${QUEUE_BACKEND:-inline}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-local-dev-secret}
+      # CORS_ORIGINS/FRONTEND_URL were documented in .env.example since
+      # FASE D but never actually forwarded here — set them in .env and
+      # they silently had no effect inside the container. Fixed in FASE M.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_REGION: ${STORAGE_REGION:-}
+      BACKUP_STORAGE_PROVIDER: ${BACKUP_STORAGE_PROVIDER:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     volumes:
       - ./backend:/app
       - backend_storage:/app/storage
@@ -77,6 +90,17 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-campanhas}:${POSTGRES_PASSWORD:-campanhas}@db:5432/${POSTGRES_DB:-campanhas}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       QUEUE_BACKEND: redis
+      # The worker reads/writes documents (app.services.documents.document_service)
+      # through the same storage provider the backend uses — without
+      # forwarding these it would silently default to "local" even when
+      # the backend is configured for Google Drive.
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_REGION: ${STORAGE_REGION:-}
+      BACKUP_STORAGE_PROVIDER: ${BACKUP_STORAGE_PROVIDER:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
     volumes:
       - ./backend:/app
       - backend_storage:/app/storage
