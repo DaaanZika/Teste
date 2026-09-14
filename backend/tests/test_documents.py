@@ -83,6 +83,22 @@ def test_process_document_never_crashes_even_without_ocr_engine(client):
     )
 
 
+def test_get_document_file_returns_original_bytes(client):
+    content = _png_bytes(text_marker=4)
+    upload = client.post("/documents/upload", files={"file": ("visualizar.png", content, "image/png")})
+    document_id = upload.json()["document"]["id"]
+
+    response = client.get(f"/documents/{document_id}/file")
+    assert response.status_code == 200
+    assert response.content == content
+    assert response.headers["content-type"] == "image/png"
+
+
+def test_get_document_file_404_for_missing_document(client):
+    response = client.get("/documents/does-not-exist/file")
+    assert response.status_code == 404
+
+
 def test_get_nonexistent_document_returns_404(client):
     response = client.get("/documents/does-not-exist")
     assert response.status_code == 404

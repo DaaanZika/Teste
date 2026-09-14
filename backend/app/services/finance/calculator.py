@@ -44,18 +44,31 @@ def _transactions(
     return list(db.execute(stmt).scalars())
 
 
-def total_revenues(db: Session, *, campaign_id: str | None = None) -> Decimal:
-    rows = _transactions(db, campaign_id=campaign_id, type_=TransactionType.REVENUE)
+def total_revenues(
+    db: Session, *, campaign_id: str | None = None, start_date: date | None = None, end_date: date | None = None
+) -> Decimal:
+    rows = _transactions(
+        db, campaign_id=campaign_id, type_=TransactionType.REVENUE, start_date=start_date, end_date=end_date
+    )
     return _quantize(sum((r.amount for r in rows), Decimal("0")))
 
 
-def total_expenses(db: Session, *, campaign_id: str | None = None) -> Decimal:
-    rows = _transactions(db, campaign_id=campaign_id, type_=TransactionType.EXPENSE)
+def total_expenses(
+    db: Session, *, campaign_id: str | None = None, start_date: date | None = None, end_date: date | None = None
+) -> Decimal:
+    rows = _transactions(
+        db, campaign_id=campaign_id, type_=TransactionType.EXPENSE, start_date=start_date, end_date=end_date
+    )
     return _quantize(sum((r.amount for r in rows), Decimal("0")))
 
 
-def balance(db: Session, *, campaign_id: str | None = None) -> Decimal:
-    return _quantize(total_revenues(db, campaign_id=campaign_id) - total_expenses(db, campaign_id=campaign_id))
+def balance(
+    db: Session, *, campaign_id: str | None = None, start_date: date | None = None, end_date: date | None = None
+) -> Decimal:
+    return _quantize(
+        total_revenues(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
+        - total_expenses(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
+    )
 
 
 _PERIOD_KEY_FORMATS = {"day": "%Y-%m-%d", "month": "%Y-%m", "year": "%Y"}

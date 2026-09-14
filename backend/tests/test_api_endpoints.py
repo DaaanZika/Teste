@@ -74,3 +74,40 @@ def test_finance_balance_is_consistent_with_summary(client):
     balance = client.get("/finance/balance").json()
 
     assert balance["balance"] == summary["balance"]
+
+
+def test_finance_summary_and_balance_accept_date_range(client):
+    client.post("/revenues", json={"amount": "100.00", "date": "2024-05-01", "donor_name": "Doador"})
+    client.post("/revenues", json={"amount": "900.00", "date": "2024-06-15", "donor_name": "Doador"})
+    client.post("/expenses", json={"description": "Fora do periodo", "amount": "50.00", "date": "2024-04-01"})
+
+    summary = client.get(
+        "/finance/summary", params={"start_date": "2024-05-01", "end_date": "2024-05-31"}
+    ).json()
+    balance = client.get(
+        "/finance/balance", params={"start_date": "2024-05-01", "end_date": "2024-05-31"}
+    ).json()
+
+    assert summary["total_revenues"] == "100.00"
+    assert summary["total_expenses"] == "0.00"
+    assert balance["total_revenues"] == "100.00"
+    assert balance["balance"] == "100.00"
+
+
+def test_finance_totals_by_category_type_param_selects_revenue_or_expense(client):
+    client.post(
+        "/revenues",
+        json={"amount": "500.00", "date": "2024-03-01", "donor_name": "Doador", "source_type": "Pessoa física"},
+    )
+    client.post(
+        "/expenses",
+        json={"description": "Gasolina", "amount": "80.00", "date": "2024-03-02", "category": "Combustível"},
+    )
+
+    expense_breakdown = client.get("/finance/totals/category").json()
+    assert any(row["category"] == "Combustível" for row in expense_breakdown)
+    assert not any(row["category"] == "Pessoa física" for row in expense_breakdown)
+
+    revenue_breakdown = client.get("/finance/totals/category", params={"type": "REVENUE"}).json()
+    assert any(row["category"] == "Pessoa física" for row in revenue_breakdown)
+    assert not any(row["category"] == "Combustível" for row in revenue_breakdown)

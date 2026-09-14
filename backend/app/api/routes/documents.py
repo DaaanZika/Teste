@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db
+from app.integrations.storage_adapter import get_storage_provider
 from app.models.enums import DocumentStatus
 from app.schemas.document import DocumentCorrection, DocumentRead, DocumentUploadResponse
 from app.services.documents import document_service
@@ -48,6 +50,21 @@ def list_documents(
 def get_document(document_id: str, db: Session = Depends(get_db)) -> DocumentRead:
     document = document_service.get_document(db, document_id)
     return DocumentRead.model_validate(document)
+
+
+@router.get("/{document_id}/file")
+def get_document_file(document_id: str, db: Session = Depends(get_db)) -> Response:
+    """Streams the untouched original file so the frontend can display it
+    (PROMPT 2 §24 document viewer). The original is never modified on disk;
+    this only reads it back through the same storage adapter used to save it."""
+    document = document_service.get_document(db, document_id)
+    storage = get_storage_provider()
+    content = storage.read(document.original_path)
+    return Response(
+        content=content,
+        media_type=document.mime_type,
+        headers={"Content-Disposition": f'inline; filename="{document.original_filename}"'},
+    )
 
 
 @router.post("/{document_id}/process", response_model=DocumentRead)

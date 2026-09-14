@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-500: #3b6fe0;
+  --color-brand-600: #2f5bc7;
+  --color-brand-700: #24499e;
+
+  --color-revenue: #0f9d58;
+  --color-revenue-bg: #e8f7ef;
+  --color-expense: #d93025;
+  --color-expense-bg: #fdeceb;
+  --color-warning: #b7791f;
+  --color-warning-bg: #fef3e2;
+}
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #f5f6f8;
+  color: #101828;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-brand-100);
+}
+
+/* Tabular numbers for money everywhere */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
