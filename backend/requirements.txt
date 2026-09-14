@@ -6,6 +6,15 @@ sqlalchemy==2.0.36
 alembic==1.14.0
 python-multipart==0.0.19
 
+# PostgreSQL (production database — see backend/DATABASE.md). SQLite stays
+# the zero-config default for local dev; psycopg only needs to be
+# installed, DATABASE_URL selects the dialect at runtime.
+psycopg[binary]==3.2.3
+
+# Redis (only used when QUEUE_BACKEND=redis, see app/queue/ — FASE G).
+# Importing this package is always safe even when Redis is never used.
+redis==5.2.1
+
 # OCR
 pytesseract==0.3.13
 Pillow==11.0.0

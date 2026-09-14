@@ -1,20 +1,25 @@
-import uuid
 from datetime import date
 from decimal import Decimal
 
 import pytest
 
+from app.models.campaign import Campaign
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 from app.services.finance import calculator
 
 
 @pytest.fixture()
-def campaign_id():
-    # Each test uses its own campaign id so calculator queries (filtered by
-    # campaign_id) never see transactions inserted by other tests sharing
-    # the same session-wide sqlite database.
-    return str(uuid.uuid4())
+def campaign_id(db_session):
+    # Each test uses its own real campaign row (not just a random UUID) so
+    # calculator queries (filtered by campaign_id) never see transactions
+    # inserted by other tests sharing the same session-wide database, and
+    # so the transactions.campaign_id foreign key is actually satisfied —
+    # SQLite doesn't enforce FKs by default, but PostgreSQL does.
+    campaign = Campaign(name="Campanha de teste")
+    db_session.add(campaign)
+    db_session.commit()
+    return campaign.id
 
 
 def _add_transaction(db_session, *, campaign_id, type_, amount, when=None, category=None, counterparty=None):

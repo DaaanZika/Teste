@@ -78,13 +78,17 @@ alembic revision --autogenerate -m "descrição da mudança"
 alembic upgrade head
 ```
 
-### Migrando de SQLite para PostgreSQL no futuro
+### PostgreSQL
 
 Basta trocar `DATABASE_URL` no `.env` para uma URL PostgreSQL (ex.:
-`postgresql+psycopg://user:senha@host/banco`) e instalar o driver
-(`psycopg[binary]`). Nenhum model, service ou rota precisa mudar — a
-camada de persistência (`app/core/database.py`) já é desacoplada do
-dialeto do banco.
+`postgresql+psycopg://user:senha@host/banco`) — o driver (`psycopg[binary]`)
+já está em `requirements.txt`. Nenhum model, service ou rota muda — a
+camada de persistência (`app/core/database.py`) é desacoplada do dialeto
+do banco, e isso é testado de verdade (não só por design): ver
+`DATABASE.md` para como rodar a suíte de testes contra Postgres.
+
+Com Docker (`docker compose up` na raiz do projeto), o Postgres já sobe
+configurado automaticamente — ver `../README.md`.
 
 ## Execução
 
@@ -159,7 +163,8 @@ backend/
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| GET | `/health` | Status da API |
+| GET | `/health` | Liveness — processo no ar (não checa dependências) |
+| GET | `/ready` | Readiness — checa banco (e Redis, se `QUEUE_BACKEND=redis`) |
 | POST | `/documents/upload` | Upload de documento (multipart) |
 | GET | `/documents` | Lista documentos (filtros: `status`, `campaign_id`) |
 | GET | `/documents/{id}` | Detalhe de um documento |
