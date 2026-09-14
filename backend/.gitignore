@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+
+# Local database and uploaded files — never committed
+storage/app.db
+storage/originals/*
+storage/processed/*
+storage/temporary/*
+!storage/originals/.gitkeep
+!storage/processed/.gitkeep
+!storage/temporary/.gitkeep
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
