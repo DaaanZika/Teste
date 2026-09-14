@@ -25,5 +25,11 @@ PyMuPDF==1.25.1
 # at runtime, and the test suite's TestClient at test time.
 httpx==0.28.1
 
+# Exportação de relatórios auxiliares (FASE J) — nunca o layout oficial
+# do TSE/CONTA+JE, ver app/services/reports/export_service.py.
+openpyxl==3.1.5
+reportlab==5.0.1
+
 # Tests
 pytest==8.3.4
+pypdf==6.18.1  # test-only: verifying generated PDF report content

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '@/api'
+import type { ReportExportFormat, ReportExportType } from '@/api/reports'
 import { DocumentLinkBadge, ExpenseStatusBadge, RevenueStatusBadge } from '@/components/StatusBadges'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
@@ -11,6 +12,32 @@ import { cn } from '@/lib/cn'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
 import { queryKeys } from '@/lib/queryClient'
 import type { AuditLogRead, DocumentsReportSummary, ExpenseReportRow, FinanceSummary, RevenueReportRow } from '@/types/api'
+
+const EXPORT_FORMATS: Array<{ format: ReportExportFormat; label: string }> = [
+  { format: 'csv', label: 'CSV' },
+  { format: 'xlsx', label: 'XLSX' },
+  { format: 'pdf', label: 'PDF' },
+]
+
+/** Every downloaded file is a "RELATÓRIO AUXILIAR" — see
+ * backend/app/services/reports/export_service.py. Plain links, not XHR
+ * calls, so the browser handles the file download directly (same pattern
+ * as the Google login/connect links). */
+function ExportButtons({ type }: { type: ReportExportType }) {
+  return (
+    <div className="flex items-center gap-1">
+      {EXPORT_FORMATS.map(({ format, label }) => (
+        <a
+          key={format}
+          href={api.reports.exportUrl(type, format)}
+          className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          {label}
+        </a>
+      ))}
+    </div>
+  )
+}
 
 type Tab = 'summary' | 'expenses' | 'revenues' | 'documents' | 'audit'
 
@@ -61,7 +88,7 @@ function SummaryReport() {
   const query = useQuery({ queryKey: queryKeys.reportsSummary(), queryFn: () => api.reports.summary() })
   return (
     <Card>
-      <CardHeader title="Resumo financeiro" />
+      <CardHeader title="Resumo financeiro" action={<ExportButtons type="summary" />} />
       <CardBody>
         {query.isLoading ? (
           <LoadingState />
@@ -109,7 +136,7 @@ function ExpensesReport() {
   ]
   return (
     <Card>
-      <CardHeader title="Relatório de despesas" />
+      <CardHeader title="Relatório de despesas" action={<ExportButtons type="expenses" />} />
       <CardBody className="p-0">
         {query.isLoading ? (
           <LoadingState />
@@ -136,7 +163,7 @@ function RevenuesReport() {
   ]
   return (
     <Card>
-      <CardHeader title="Relatório de receitas" />
+      <CardHeader title="Relatório de receitas" action={<ExportButtons type="revenues" />} />
       <CardBody className="p-0">
         {query.isLoading ? (
           <LoadingState />
@@ -156,7 +183,7 @@ function DocumentsReport() {
   const query = useQuery({ queryKey: queryKeys.reportsDocuments(), queryFn: () => api.reports.documents() })
   return (
     <Card>
-      <CardHeader title="Relatório de documentos" />
+      <CardHeader title="Relatório de documentos" action={<ExportButtons type="documents" />} />
       <CardBody>
         {query.isLoading ? (
           <LoadingState />

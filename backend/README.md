@@ -193,6 +193,7 @@ backend/
 | GET | `/finance/summary`, `/finance/balance` | Totais e saldo (fonte da verdade) |
 | GET | `/finance/totals/{period,category,supplier}` | Agregações financeiras |
 | GET | `/reports/{summary,expenses,revenues,documents}` | Dados estruturados para relatórios |
+| GET | `/reports/{summary,expenses,revenues,documents}/export?format=csv\|xlsx\|pdf` | Exporta o mesmo relatório como arquivo — sempre rotulado "RELATÓRIO AUXILIAR" |
 | GET | `/compliance/alerts`, `/compliance/rules` | Alertas e regras de conformidade |
 | GET | `/compliance/rules/{rule_id}/history` | Todas as versões de uma regra, mais antiga primeiro |
 | POST | `/compliance/rules` | Cria a 1ª versão de uma regra (somente ADMIN, sempre inativa) |
@@ -312,6 +313,24 @@ job é logada e o worker segue para o próximo, nunca derruba o processo
 (`app/queue/worker.py`). `GET /integrations/status` reporta o estado real
 da fila (`queue`), incluindo se o Redis configurado está de fato
 alcançável.
+
+## Exportação de relatórios (CSV/XLSX/PDF)
+
+Todo relatório em `/reports/*` tem um endpoint irmão `/export` que gera o
+mesmo conteúdo como arquivo (`app/services/reports/export_service.py`).
+Os três formatos incluem, dentro do próprio arquivo (não só na interface),
+o aviso:
+
+> RELATÓRIO AUXILIAR — uso interno da campanha. Este documento NÃO é uma
+> prestação de contas oficial ao TSE, não foi enviado a nenhum sistema
+> oficial e não segue necessariamente o layout exigido pelo CONTA+JE.
+
+Nenhum desses arquivos é, ou afirma ser, uma prestação de contas oficial
+— este sistema não é o CONTA+JE e não simula envio a nenhum sistema do
+TSE. Valores monetários são gravados como `Decimal` também na exportação
+(CSV/PDF como texto formatado, XLSX como número exato — nunca um `float`
+arredondado), mantendo a mesma garantia de precisão financeira do resto
+do backend.
 
 ## Próximos passos (fora do escopo desta fase)
 
