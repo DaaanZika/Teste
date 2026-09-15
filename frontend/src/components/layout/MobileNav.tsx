@@ -2,16 +2,17 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { CameraIcon, DashboardIcon, DocumentIcon, FinanceIcon, MenuIcon, PlusIcon } from '@/components/icons'
 import { cn } from '@/lib/cn'
-import { NAV_ITEMS } from '@/lib/nav'
+import { NAV_ITEMS, useNavItems } from '@/lib/nav'
 import { useQuickAdd } from '@/state/QuickAddContext'
 
 const PRIMARY = [NAV_ITEMS[0], NAV_ITEMS[1], NAV_ITEMS[5]] // Dashboard, Documentos, Financeiro
-const MORE = NAV_ITEMS.filter((item) => !PRIMARY.includes(item) && item.to !== '/adicionar-gasto')
 
 export function MobileNav() {
   const [moreOpen, setMoreOpen] = useState(false)
   const { openQuickAdd } = useQuickAdd()
   const navigate = useNavigate()
+  const navItems = useNavItems()
+  const more = navItems.filter((item) => !PRIMARY.includes(item) && item.to !== '/adicionar-gasto')
 
   return (
     <>
@@ -74,7 +75,7 @@ export function MobileNav() {
           <div className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-xl">
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
             <div className="grid grid-cols-3 gap-3">
-              {MORE.map((item) => (
+              {more.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}

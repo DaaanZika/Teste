@@ -1,19 +1,14 @@
+import { Link } from 'react-router-dom'
 import { useAuthStatus, useLogout } from '@/hooks/useAuthStatus'
 import { api } from '@/api'
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Administrador',
-  CAMPAIGN_MANAGER: 'Gestor de campanha',
-  FINANCIAL: 'Financeiro',
-  ACCOUNTANT: 'Contador',
-  VIEWER: 'Visualizador',
-}
+import { ROLE_LABELS } from '@/lib/roles'
 
 /**
  * Shows nothing extra in auth_provider="local" (V1's default — there is
- * only one implicit operator, login would be noise). Once Google login is
- * configured and active, shows either "Entrar com Google" or the signed-in
- * user + a logout button (PROMPT 3 §6/§43).
+ * only one implicit operator, login would be noise). Once auth_provider is
+ * "google" or "password" (PROMPT 4), shows a login link (Google and/or
+ * password, whichever is available) or the signed-in user + a logout
+ * button (PROMPT 3 §6/§43, PROMPT 4 §login).
  */
 export function AccountMenu() {
   const statusQuery = useAuthStatus()
@@ -26,14 +21,23 @@ export function AccountMenu() {
   if (status.auth_provider === 'local') return null
 
   if (!status.authenticated || !status.user) {
-    if (!status.google_configured) return null
     return (
-      <a
-        href={api.auth.loginUrl()}
-        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-        Entrar com Google
-      </a>
+      <div className="flex items-center gap-2">
+        {status.google_configured && (
+          <a
+            href={api.auth.loginUrl()}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Entrar com Google
+          </a>
+        )}
+        <Link
+          to="/login"
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
+        >
+          Entrar
+        </Link>
+      </div>
     )
   }
 

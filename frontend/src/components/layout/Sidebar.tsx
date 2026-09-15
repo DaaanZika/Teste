@@ -1,8 +1,9 @@
 import { NavLink } from 'react-router-dom'
 import { cn } from '@/lib/cn'
-import { NAV_ITEMS } from '@/lib/nav'
+import { useNavItems } from '@/lib/nav'
 
 export function Sidebar() {
+  const navItems = useNavItems()
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
       <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-5">
@@ -15,7 +16,7 @@ export function Sidebar() {
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4" aria-label="Navegação principal">
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

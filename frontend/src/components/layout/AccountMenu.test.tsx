@@ -26,7 +26,20 @@ describe('AccountMenu', () => {
       auth_provider: 'local',
       google_configured: false,
       authenticated: true,
-      user: { id: 'u1', name: 'Operador Local', email: null, google_id: null, avatar: null, role: 'ADMIN', active: true, created_at: '', updated_at: '' },
+      user: {
+        id: 'u1',
+        name: 'Operador Local',
+        email: null,
+        google_id: null,
+        avatar: null,
+        role: 'ADMIN',
+        active: true,
+        created_at: '',
+        updated_at: '',
+        organization_id: null,
+        status: 'ACTIVE',
+        last_login_at: null,
+      },
     } satisfies AuthStatus)
 
     renderWithProviders(<AccountMenu />)
@@ -65,6 +78,9 @@ describe('AccountMenu', () => {
         active: true,
         created_at: '',
         updated_at: '',
+        organization_id: null,
+        status: 'ACTIVE',
+        last_login_at: null,
       },
     } satisfies AuthStatus)
 

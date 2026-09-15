@@ -31,6 +31,27 @@ export type AuditAction =
   | 'STATUS_CHANGE'
   | 'MANUAL_CORRECTION'
   | 'LINK_DOCUMENT'
+  | 'LOGIN'
+  | 'LOGOUT'
+  | 'USER_CREATED'
+  | 'USER_DISABLED'
+  | 'USER_LOGIN'
+  | 'USER_LOGIN_FAILED'
+  | 'USER_LOGOUT'
+  | 'PASSWORD_CHANGED'
+  | 'PASSWORD_RESET_REQUESTED'
+  | 'PASSWORD_RESET'
+  | 'PERMISSION_CHANGED'
+  | 'EXPENSE_CREATED'
+  | 'EXPENSE_UPDATED'
+  | 'EXPENSE_DELETED'
+  | 'DOCUMENT_UPLOADED'
+  | 'DOCUMENT_UPDATED'
+  | 'ORGANIZATION_CREATED'
+  | 'ORGANIZATION_UPDATED'
+  | 'ORGANIZATION_STATUS_CHANGED'
+  | 'SUPPORT_ACCESS_STARTED'
+  | 'SUPPORT_ACCESS_ENDED'
 
 export interface DocumentItemRead {
   id: string
@@ -232,6 +253,9 @@ export interface AuditLogRead {
   new_value: string | null
   timestamp: string
   user_id: string | null
+  organization_id?: string | null
+  ip_address?: string | null
+  user_agent?: string | null
 }
 
 export interface DocumentsReportSummary {
@@ -264,7 +288,20 @@ export interface RevenueReportRow {
   status: RevenueStatus
 }
 
-export type Role = 'ADMIN' | 'CAMPAIGN_MANAGER' | 'FINANCIAL' | 'ACCOUNTANT' | 'VIEWER'
+export type Role =
+  | 'ADMIN'
+  | 'CAMPAIGN_MANAGER'
+  | 'FINANCIAL'
+  | 'ACCOUNTANT'
+  | 'VIEWER'
+  | 'SUPER_ADMIN'
+  | 'OWNER'
+  | 'FINANCEIRO'
+  | 'OPERACIONAL'
+  | 'VISUALIZADOR'
+  | 'CUSTOM'
+
+export type UserStatus = 'ACTIVE' | 'DISABLED' | 'BLOCKED'
 
 export interface UserRead {
   id: string
@@ -276,6 +313,23 @@ export interface UserRead {
   active: boolean
   created_at: string
   updated_at: string
+  organization_id: string | null
+  status: UserStatus
+  last_login_at: string | null
+}
+
+export interface UserCreate {
+  name: string
+  email: string
+  password: string
+  role: Role
+  active?: boolean
+}
+
+export interface UserUpdate {
+  role?: Role
+  active?: boolean
+  status?: UserStatus
 }
 
 export interface AuthStatus {
@@ -283,6 +337,60 @@ export interface AuthStatus {
   google_configured: boolean
   authenticated: boolean
   user: UserRead | null
+}
+
+export type OrganizationStatus = 'ACTIVE' | 'SUSPENDED' | 'BLOCKED'
+
+export interface Organization {
+  id: string
+  name: string
+  slug: string
+  status: OrganizationStatus
+  owner_user_id: string | null
+  plan: string
+  storage_limit_bytes: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizationCreate {
+  name: string
+  slug: string
+  plan?: string
+  storage_limit_bytes?: number | null
+  owner_name: string
+  owner_email: string
+  owner_password: string
+}
+
+export interface OrganizationUsage {
+  organization_id: string
+  campaigns_count: number
+  users_count: number
+  active_users_count: number
+  documents_count: number
+  documents_processed_count: number
+  expenses_count: number
+  revenues_count: number
+  storage_used_bytes: number
+}
+
+export interface PlatformMetrics {
+  organizations_total: number
+  organizations_active: number
+  organizations_suspended: number
+  organizations_blocked: number
+  users_total: number
+  users_active: number
+  documents_total: number
+  documents_processed: number
+  documents_failed: number
+  expenses_total: number
+  revenues_total: number
+  storage_used_bytes: number
+  ocr_available: boolean
+  database_healthy: boolean
+  recent_audit_events: number
 }
 
 export interface IntegrationStatus {
