@@ -9,37 +9,70 @@ aquele é o registro histórico da auditoria dedicada.
 ## Autenticação
 
 - **`AUTH_PROVIDER=local`** (padrão): nenhuma senha, nenhum login — um
-  operador único com papel ADMIN. Adequado para um único responsável
-  operando a campanha na própria máquina; não segrega usuários.
+  operador único com papel ADMIN, dentro de uma organização implícita.
+  Adequado para um único responsável operando a campanha na própria
+  máquina; não segrega usuários.
 - **`AUTH_PROVIDER=google`**: OAuth 2.0 real (`app/services/auth/google_oauth.py`),
   sem SDK — chamadas diretas ao endpoint do Google via `httpx`. Estado
   (`state`) gerado com `secrets.token_urlsafe`, guardado num cookie
   `httponly` e conferido por igualdade no callback (proteção CSRF do
   fluxo OAuth em si, independente do CSRF de sessão abaixo).
+- **Login por senha** (`POST /auth/login`, disponível sempre que
+  `AUTH_PROVIDER` não é `local`): senha com hash bcrypt (12 rounds,
+  `app/core/password.py`), nunca texto puro em lugar nenhum. Resposta
+  idêntica para e-mail inexistente e senha errada — nenhuma enumeração de
+  contas. Bloqueio de conta por 15 minutos após 5 tentativas seguidas
+  erradas (`User.failed_login_attempts`/`locked_until`), além do rate
+  limit por IP já existente em `/auth/login`. Reset de senha
+  (`/auth/forgot-password` → `/auth/reset-password`) usa um token de uso
+  único com hash SHA-256 guardado (mesmo princípio do token de sessão
+  abaixo) e 30 minutos de validade; a resposta de `forgot-password` é
+  sempre a mesma, exista ou não o e-mail.
 - **Sessão**: token opaco de 256 bits (`secrets.token_urlsafe(32)`) num
   cookie `httponly` + `secure` (fora de `DEBUG`) + `samesite=lax`. O
   banco guarda só o hash SHA-256 do token — um vazamento do banco sozinho
   não é reutilizável como sessão válida. **Não** é um JWT nem um token
   assinado; `SECRET_KEY` não protege nada hoje (ver nota em
   `app/core/config.py` — mantido como placeholder obrigatório-de-rotacionar
-  para um esquema futuro, não como algo já em uso).
+  para um esquema futuro, não como algo já em uso). Login por Google e
+  por senha criam o mesmo tipo de sessão — nunca dois sistemas paralelos.
+- **Primeiro SUPER_ADMIN**: bootstrap explícito por variável de ambiente
+  (`SUPER_ADMIN_BOOTSTRAP_EMAIL`/`PASSWORD`, `python -m app.services.admin.bootstrap`)
+  — nenhuma senha fixa no código, idempotente (nunca cria um segundo,
+  nunca reseta a senha de um já existente). Ver `backend/README.md`.
 
-## Autorização (RBAC)
+## Autorização (RBAC) e multi-tenant
 
-5 papéis × 9 permissões (`app/core/rbac.py`), aplicado por
-`Depends(require_permission(...))` em cada rota — nunca checado
-manualmente com `if role == ...` espalhado pelo código. Toda rota que
-muda estado exige uma permissão explícita; leitura exige a permissão
-`VIEW_*` correspondente.
+Papéis × permissões vivem só em `app/core/rbac.py` (fonte única),
+aplicado por `Depends(require_permission(...))` em cada rota — nunca
+checado manualmente com `if role == ...` espalhado pelo código. Toda
+rota que muda estado exige uma permissão explícita; leitura exige a
+permissão `VIEW_*`/granular correspondente. `SUPER_ADMIN` é a exceção
+deliberada: nunca passa por esse mapa de permissões — `/admin/*` é
+protegido por uma checagem de **papel** (`require_super_admin`), nunca
+de permissão, para que nenhuma combinação de permissões concedidas possa
+acidentalmente destravar a área da plataforma.
 
-**Limitação conhecida**: RBAC controla *o que* um papel pode fazer, não
-*quais campanhas* ele vê — todo usuário autenticado enxerga dados de
-todas as campanhas no banco. Só importa em `AUTH_PROVIDER=google` com
-múltiplos usuários reais; documentado em `docs/audit/FASE-D-gaps.md`.
+**Isolamento entre organizações** (resolvido — antes um gap conhecido,
+ver `docs/audit/FASE-D-gaps.md`): cada `Campaign` pertence a uma
+`Organization`; todo documento/despesa/receita/alerta pertence a uma
+campanha, e por isso a uma organização. Todo endpoint deriva a
+organização do usuário autenticado (`app/core/tenancy.py`) — nunca de um
+valor enviado pelo cliente; um `organization_id`/`campaign_id` de outra
+organização é sempre recusado (404, nunca confirmando que o registro
+existe). Testado contra duas organizações reais em
+`backend/tests/test_multi_tenant_isolation.py` — inclusive que criar um
+registro nunca aceita a organização de outra pessoa vinda do payload, e
+que a checagem de duplicidade de documentos (hash e campos extraídos)
+também é escopada por organização (achado real durante o PROMPT 4: sem
+isso, um hash coincidente entre organizações vazava o documento da
+outra).
 
-Um guard específico impede deixar o sistema sem nenhum ADMIN ativo
-(`PATCH /users/{id}` recusa com 409 se a mudança removeria o último —
-achado e corrigido na FASE H, `app/api/routes/users.py`).
+Um guard específico impede deixar uma organização sem nenhum
+OWNER/ADMIN ativo (`PATCH /users/{id}` recusa com 409 se a mudança
+removeria o último — achado e corrigido na FASE H para o caso de
+usuário único, estendido ao multi-tenant no PROMPT 4,
+`app/api/routes/users.py`).
 
 ## CSRF
 

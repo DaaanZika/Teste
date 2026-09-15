@@ -116,8 +116,12 @@ Os testes usam um banco SQLite e um diretório de armazenamento
 temporários (ver `tests/conftest.py`), isolados do `storage/` real do
 projeto. Cobrem: extração de OCR (sem inventar campos), confiança do OCR,
 motor financeiro (`Decimal`, sem `float`), o parser de lançamento rápido de
-despesas, upload/hash/duplicidade de documentos e os principais endpoints
-da API.
+despesas, upload/hash/duplicidade de documentos, os principais endpoints
+da API, RBAC por papel (`test_rbac.py`, `test_rbac_new_roles_integration.py`),
+login por senha/bloqueio de conta (`test_auth_password.py`), o bootstrap
+do primeiro SUPER_ADMIN (`test_super_admin_bootstrap.py`) e, com ênfase
+especial, isolamento entre organizações (`test_multi_tenant_isolation.py`
+— duas organizações reais, uma nunca alcança dados da outra).
 
 ## Arquitetura
 
@@ -138,7 +142,9 @@ backend/
 │   │   ├── compliance/           # Motor de regras + registro versionado (ELECTORAL_RULES.md)
 │   │   ├── reports/              # Agregação para /reports + exportação CSV/XLSX/PDF
 │   │   ├── audit/                # Log de auditoria (append-only)
-│   │   ├── auth/                 # Sessão + Google OAuth
+│   │   ├── auth/                 # Sessão + Google OAuth + login por senha
+│   │   ├── admin/                # Organizações (CRUD) + bootstrap do 1º SUPER_ADMIN
+│   │   ├── notifications/        # E-mail (SMTP opcional) — hoje só o reset de senha
 │   │   ├── integrations/         # Tokens OAuth compartilhados (Drive/Gmail) + serviço Gmail
 │   │   └── backup/               # Backup/restauração (BACKUP.md)
 │   ├── rules/electoral/          # Regras eleitorais como dados (vazio por desenho)
@@ -149,7 +155,7 @@ backend/
 ├── storage/{originals,processed,temporary}/   # Arquivos locais
 ├── backups/                      # Backups locais (nunca commitado — BACKUP.md)
 ├── alembic/                      # Migrations do banco
-├── tests/                        # 216 testes, rodados contra SQLite e Postgres reais
+├── tests/                        # 270 testes, rodados contra SQLite e Postgres reais
 └── requirements.txt
 ```
 
@@ -181,10 +187,15 @@ Mapa completo por recurso em `API.md`; o contrato exato de cada rota
 | GET | `/ready` | Readiness — checa banco (e Redis, se `QUEUE_BACKEND=redis`) |
 | GET | `/auth/status` | Nunca exige sessão; diz se há login e se Google está configurado |
 | GET | `/auth/google/login`, `/auth/google/callback` | Fluxo OAuth (exige `GOOGLE_CLIENT_ID`/`SECRET`) |
+| POST | `/auth/login` | Login por e-mail/senha (`AUTH_PROVIDER` diferente de `local`) |
+| POST | `/auth/change-password`, `/auth/forgot-password`, `/auth/reset-password` | Troca de senha autenticada, e fluxo de "esqueci minha senha" |
 | POST | `/auth/logout` | Revoga a sessão atual |
 | GET | `/auth/me` | Usuário autenticado |
-| GET | `/users`, `PATCH /users/{id}` | Gestão de usuários (somente ADMIN) |
-| GET/POST/PUT | `/campaigns`, `/campaigns/{id}` | Campanhas (múltiplas campanhas, ver seção RBAC abaixo) |
+| GET/POST/PATCH | `/users`, `/users/{id}` | Usuários da própria organização (`MANAGE_USERS`) — criar exige senha inicial |
+| POST | `/users/{id}/reset-password` | Um admin da organização dispara o reset de senha de outro usuário |
+| GET/PATCH | `/organization`, `/organization/usage` | Dados/uso da própria organização (OWNER/ADMIN) |
+| GET/POST | `/admin/*` | Administração da plataforma — exclusivo SUPER_ADMIN (organizações, métricas reais, usuários de todas as organizações, atividade) |
+| GET/POST/PUT | `/campaigns`, `/campaigns/{id}` | Campanhas da própria organização |
 | GET | `/integrations/status` | Estado real de Google Drive, Gmail, backup, banco e OCR |
 | GET | `/integrations/google-drive/connect` | Inicia a conexão do Google Drive (somente ADMIN) |
 | POST | `/integrations/google-drive/disconnect` | Desconecta o Google Drive (somente ADMIN) |
@@ -219,33 +230,109 @@ A lista completa e interativa está em `/docs`.
 
 ## Autenticação e permissões (RBAC)
 
-Dois modos, escolhidos por `AUTH_PROVIDER`:
+Três modos, escolhidos por `AUTH_PROVIDER`:
 
 - **`local`** (padrão): sem login, exatamente como a V1. Um único
-  operador local é criado automaticamente com papel `ADMIN` — todas as
-  permissões liberadas, nada muda no comportamento anterior.
+  operador local é criado automaticamente com papel `ADMIN`, dentro de
+  uma organização implícita ("Organização Local") — todas as permissões
+  liberadas dentro dela, nada muda no comportamento anterior.
 - **`google`**: login real via Google OAuth (`app/services/auth/`). No
   primeiro login o usuário é criado com o papel mais restrito
-  (`VIEWER`); um `ADMIN` precisa promovê-lo em `PATCH /users/{id}`.
-  Sem `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REDIRECT_URI`
-  configurados, os endpoints de login retornam `503 NOT_CONFIGURED` —
-  nunca simulam um login bem-sucedido.
+  (`VIEWER`), sem organização; um `ADMIN`/`OWNER` precisa promovê-lo ou
+  um `SUPER_ADMIN` precisa criá-lo dentro de uma organização (ver
+  "Multi-tenant" abaixo). Sem `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/
+  `GOOGLE_REDIRECT_URI` configurados, os endpoints de login retornam
+  `503 NOT_CONFIGURED` — nunca simulam um login bem-sucedido.
+- **`password`** (ou qualquer valor diferente de `local` — o login por
+  senha em `POST /auth/login` funciona sempre que `AUTH_PROVIDER` não é
+  `local`, coexistindo com o Google quando ambos estão configurados):
+  login com e-mail/senha (`app/core/password.py`, bcrypt), a mesma sessão
+  em cookie que o Google usa. Bloqueio de conta após 5 tentativas
+  seguidas erradas (15 minutos), além do rate limit por IP já existente.
 
-Papéis e permissões (`app/core/rbac.py`):
+Papéis e permissões (`app/core/rbac.py`) — o mapa completo de permissões
+por papel vive só nesse arquivo (fonte única de verdade); resumo:
 
-| Papel | Pode |
-| --- | --- |
-| `ADMIN` | Tudo, incluindo gerenciar usuários e regras eleitorais |
-| `CAMPAIGN_MANAGER` | Gerenciar campanha, despesas, receitas, documentos |
-| `FINANCIAL` | Lançar despesas/receitas, gerenciar documentos |
-| `ACCOUNTANT` | Revisar/corrigir documentos, sem originar lançamentos |
-| `VIEWER` | Somente visualizar |
+| Papel | Escopo | Pode |
+| --- | --- | --- |
+| `SUPER_ADMIN` | Plataforma (nenhuma organização) | Administrar todas as organizações (`/admin/*`) — não depende deste mapa de permissões, é um papel estruturalmente separado |
+| `OWNER` | Uma organização | Tudo dentro da própria organização, incluindo administração (equivalente multi-tenant do `ADMIN`) |
+| `ADMIN` | Uma organização (papel original, mantido) | Tudo dentro da própria organização |
+| `CAMPAIGN_MANAGER` | Uma organização | Gerenciar campanha, despesas, receitas, documentos |
+| `FINANCIAL` / `FINANCEIRO` | Uma organização | Lançar despesas/receitas, gerenciar documentos |
+| `ACCOUNTANT` / `OPERACIONAL` | Uma organização | Revisar/corrigir documentos, sem originar lançamentos |
+| `VIEWER` / `VISUALIZADOR` | Uma organização | Somente visualizar |
+| `CUSTOM` | Uma organização | Só visualizar por padrão — capacidades reais vêm de concessões individuais (tabela `user_permissions`), não de um conjunto fixo |
 
-**Limitação conhecida desta fase:** o RBAC controla *o que* um papel pode
-fazer, mas ainda não restringe *quais campanhas* um usuário enxerga —
-qualquer usuário autenticado vê dados de todas as campanhas. Escopo por
-campanha (`campaign_members`) é uma funcionalidade separada, ainda não
-implementada — ver `docs/audit/`.
+## Multi-tenant (organizações) e administração
+
+Cada `Campaign` pertence a exatamente uma `Organization`; cada
+documento/despesa/receita/alerta de conformidade pertence a uma campanha
+e, por consequência, a uma organização. Essa é a fronteira de isolamento
+— aplicada no **backend**, nunca assumida do frontend: todo endpoint
+deriva a organização do usuário autenticado (`app/core/tenancy.py`),
+nunca de um `organization_id`/`campaign_id` enviado pelo cliente sem
+validar antes que pertence à sua própria organização.
+
+### Criar a primeira organização
+
+Só um `SUPER_ADMIN` cria organizações, via `POST /admin/organizations`
+(ou pela UI em `/admin` → Organizações → "+ Nova Organização") — cria a
+organização **e** seu primeiro usuário `OWNER` numa única chamada (uma
+organização sem dono não é um estado útil).
+
+### Criar o primeiro SUPER_ADMIN
+
+Não existe senha fixa em lugar nenhum do código. Defina
+`SUPER_ADMIN_BOOTSTRAP_EMAIL`/`SUPER_ADMIN_BOOTSTRAP_PASSWORD` no
+ambiente e rode:
+
+```bash
+python -m app.services.admin.bootstrap
+```
+
+(o `docker-entrypoint.sh` já roda isso automaticamente a cada start do
+container, depois das migrations — é idempotente: um `SUPER_ADMIN` já
+existente faz o comando não fazer nada, nunca reseta senha nem cria um
+segundo). Depois do primeiro uso, **remova** essas duas variáveis do
+ambiente — o mecanismo não precisa mais delas.
+
+### Criar usuários dentro de uma organização
+
+Um `OWNER`/`ADMIN` da própria organização usa `POST /users` (ou a UI em
+`/administracao` → Usuários → "+ Novo Usuário"): nome, e-mail, senha
+inicial, papel. `organization_id` no corpo da requisição é sempre
+ignorado para quem não é `SUPER_ADMIN` — o usuário criado cai sempre na
+organização de quem está criando. Criar um `SUPER_ADMIN` por essa rota é
+recusado (`403`) — só o bootstrap acima cria um.
+
+### Mudar permissões de um usuário
+
+`PATCH /users/{id}` (mesma rota de sempre) muda `role`/`active`/`status`,
+sempre restrito a um usuário da própria organização (404 para um usuário
+de outra organização — nunca confirma que ele existe). Para o papel
+`CUSTOM`, permissões granulares individuais vivem na tabela
+`user_permissions` (ainda sem rota dedicada nesta fase — inserir
+diretamente via migração/admin do banco; ver `app/core/rbac.py::user_has_permission`).
+
+### Área da plataforma (`/admin`) vs. administração da organização (`/administracao`)
+
+`/admin` é exclusivo de `SUPER_ADMIN`; `/administracao` é de `OWNER`/`ADMIN`
+da própria organização. São estruturalmente separadas — nunca a mesma checagem. `/admin/*` é
+protegido por `require_super_admin` (checagem de **papel**, nunca de
+permissão — nenhuma combinação de permissões concedidas poderia
+acidentalmente destravar essa área). `/administracao` no frontend (e as
+rotas `/organization`, `/users` no backend) são protegidas por permissão
+normal, sempre restritas à própria organização.
+
+## Auditoria de isolamento entre organizações
+
+Testado de verdade, não só por desenho: `backend/tests/test_multi_tenant_isolation.py`
+cria duas organizações reais e prova que uma não alcança dados da outra
+(campanhas, usuários, documentos, despesas, receitas, resumos
+financeiros, relatórios, alertas de conformidade, auditoria) — inclusive
+que um registro criado nunca aceita um `organization_id`/`campaign_id`
+de outra organização vindo do cliente.
 
 ## Tratamento de erros
 

@@ -90,17 +90,33 @@ totalmente opcional — uma falha nela nunca afeta o storage primário
 ## Autenticação e RBAC
 
 - `AUTH_PROVIDER=local` (padrão): sem login, um operador único com papel
-  ADMIN, exatamente como a V1.
+  ADMIN, exatamente como a V1 — dentro de uma organização implícita.
 - `AUTH_PROVIDER=google`: login real via OAuth (`app/services/auth/`),
   sessão em cookie `httponly` com token opaco de 256 bits guardado só
   como hash no banco (nunca assinado — ver `backend/README.md`, "Auth").
-- RBAC: 5 papéis × 9 permissões (`app/core/rbac.py`), aplicado via
-  `Depends(require_permission(...))` em cada rota — nunca um `if role ==
-  ...` espalhado pelo código.
+- Login por e-mail/senha (`POST /auth/login`, bcrypt) funciona sempre que
+  `AUTH_PROVIDER` não é `local` — a mesma sessão em cookie que o Google
+  usa, nunca um sistema paralelo.
+- RBAC: papéis × permissões (`app/core/rbac.py`, o mapa completo mora só
+  ali), aplicado via `Depends(require_permission(...))` em cada rota —
+  nunca um `if role == ...` espalhado pelo código. `SUPER_ADMIN` é a
+  exceção deliberada: não depende deste mapa, é checado por papel
+  (`require_super_admin`), estruturalmente separado das organizações.
 
-**Limitação conhecida**: RBAC controla *o que* um papel pode fazer, ainda
-não *quais campanhas* ele vê (todo usuário autenticado vê todas as
-campanhas). Documentado em `docs/audit/FASE-D-gaps.md`.
+## Multi-tenant (organizações)
+
+Cada `Campaign` pertence a uma `Organization`; documento/despesa/receita/
+alerta pertencem a uma campanha e, por consequência, a uma organização —
+essa cadeia é a fronteira de isolamento inteira. Todo endpoint deriva a
+organização do usuário autenticado (`app/core/tenancy.py`), nunca de um
+`organization_id`/`campaign_id` enviado pelo cliente sem primeiro validar
+que pertence à sua própria organização. `SUPER_ADMIN` (`/admin/*`) e a
+administração de uma organização (`/administracao`, `/organization`,
+`/users`) são checagens estruturalmente distintas — ver
+`backend/README.md`, "Multi-tenant (organizações) e administração".
+
+Testado contra duas organizações reais, não só por desenho:
+`backend/tests/test_multi_tenant_isolation.py`.
 
 ## Processamento assíncrono (opcional)
 
@@ -133,11 +149,14 @@ backend (`Decimal`, nunca `float`) e é só formatado para exibição.
 
 ## Testes
 
-- Backend: 216 testes (`pytest`), rodados contra SQLite e Postgres reais
+- Backend: 270 testes (`pytest`), rodados contra SQLite e Postgres reais
   em cada fase que toca o schema ou uma integração externa (nunca só
   mockado quando um serviço real — Postgres, Redis, Google Drive via
   HTTP mockado onde apropriado — estava disponível para testar de
-  verdade).
+  verdade). Inclui isolamento entre organizações contra duas organizações
+  reais (`test_multi_tenant_isolation.py`), RBAC por papel exercitado
+  contra rotas reais (`test_rbac_new_roles_integration.py`), e login por
+  senha/bloqueio de conta (`test_auth_password.py`).
 - Frontend: 42 testes (`vitest` + Testing Library).
 - Ver `backend/BACKUP.md` para como a restauração de backup é verificada
   de fato (não só "o arquivo foi criado"), e

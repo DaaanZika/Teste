@@ -52,6 +52,17 @@ independente com SQLite local, exatamente como na V1.
 - `backend/app/rules/electoral/README.md` — a mesma explicação de `ELECTORAL_RULES.md`, do ponto de vista de quem for cadastrar uma regra.
 - `backend/app/integrations/future/README.md` — o que ainda é planejado (exportação TSE) vs. o que já é real (Google OAuth, Drive, Gmail — ver `backend/README.md`).
 
+## Multi-tenant e administração
+
+O sistema suporta múltiplas organizações isoladas entre si (cada uma com
+suas próprias campanhas, documentos, despesas, receitas e usuários), um
+papel de plataforma (`SUPER_ADMIN`, área `/admin`) separado dos papéis de
+cada organização (`OWNER`/`ADMIN`/etc., área `/administracao`), e login
+por e-mail/senha além do Google OAuth. Ver `backend/README.md`, seção
+"Multi-tenant (organizações) e administração", para como criar a
+primeira organização, o primeiro `SUPER_ADMIN`, e usuários dentro de uma
+organização.
+
 ## Princípios do projeto
 
 - Nenhum dado financeiro é calculado no frontend — o backend é a fonte da verdade.
