@@ -12,6 +12,7 @@ import pytest
 from app.api.deps import get_current_user
 from app.main import app as fastapi_app
 from app.models.enums import Role
+from app.models.organization import Organization
 from app.models.user import User
 
 
@@ -23,7 +24,16 @@ def as_role(db_session):
 
     def _use(role: Role) -> User:
         unique = uuid.uuid4().hex[:8]
-        user = User(name=f"Test {role.value}", email=f"{role.value.lower()}-{unique}@example.com", role=role, active=True)
+        org = Organization(name=f"Org {unique}", slug=f"org-{unique}")
+        db_session.add(org)
+        db_session.flush()
+        user = User(
+            name=f"Test {role.value}",
+            email=f"{role.value.lower()}-{unique}@example.com",
+            role=role,
+            active=True,
+            organization_id=org.id,
+        )
         db_session.add(user)
         db_session.commit()
         db_session.refresh(user)

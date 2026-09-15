@@ -10,13 +10,23 @@ import pytest
 from app.api.deps import get_current_user
 from app.main import app as fastapi_app
 from app.models.enums import AuditAction, Role
+from app.models.organization import Organization
 from app.models.user import User
 
 
 @pytest.fixture()
 def as_admin(db_session):
     unique = uuid.uuid4().hex[:8]
-    actor = User(name="Acting Admin", email=f"acting-admin-{unique}@example.com", role=Role.ADMIN, active=True)
+    org = Organization(name=f"Org {unique}", slug=f"org-{unique}")
+    db_session.add(org)
+    db_session.flush()
+    actor = User(
+        name="Acting Admin",
+        email=f"acting-admin-{unique}@example.com",
+        role=Role.ADMIN,
+        active=True,
+        organization_id=org.id,
+    )
     db_session.add(actor)
     db_session.commit()
     db_session.refresh(actor)
@@ -25,9 +35,20 @@ def as_admin(db_session):
     fastapi_app.dependency_overrides.pop(get_current_user, None)
 
 
-def _make_user(db_session, role: Role, *, active: bool = True) -> User:
+def _make_user(db_session, role: Role, *, active: bool = True, organization_id: str | None = None) -> User:
     unique = uuid.uuid4().hex[:8]
-    user = User(name=f"User {unique}", email=f"user-{unique}@example.com", role=role, active=active)
+    if organization_id is None:
+        org = Organization(name=f"Org {unique}", slug=f"org-{unique}")
+        db_session.add(org)
+        db_session.flush()
+        organization_id = org.id
+    user = User(
+        name=f"User {unique}",
+        email=f"user-{unique}@example.com",
+        role=role,
+        active=active,
+        organization_id=organization_id,
+    )
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -35,7 +56,7 @@ def _make_user(db_session, role: Role, *, active: bool = True) -> User:
 
 
 def test_admin_can_change_a_viewer_role(client, as_admin, db_session):
-    target = _make_user(db_session, Role.VIEWER)
+    target = _make_user(db_session, Role.VIEWER, organization_id=as_admin.organization_id)
 
     response = client.patch(f"/users/{target.id}", json={"role": "FINANCIAL"})
 
@@ -44,7 +65,7 @@ def test_admin_can_change_a_viewer_role(client, as_admin, db_session):
 
 
 def test_update_records_audit_log(client, as_admin, db_session):
-    target = _make_user(db_session, Role.VIEWER)
+    target = _make_user(db_session, Role.VIEWER, organization_id=as_admin.organization_id)
 
     client.patch(f"/users/{target.id}", json={"role": "FINANCIAL"})
 
@@ -87,7 +108,7 @@ def test_cannot_deactivate_the_last_active_admin(client, as_admin, db_session):
 
 
 def test_can_demote_an_admin_when_another_active_admin_exists(client, as_admin, db_session):
-    other_admin = _make_user(db_session, Role.ADMIN)
+    other_admin = _make_user(db_session, Role.ADMIN, organization_id=as_admin.organization_id)
 
     response = client.patch(f"/users/{as_admin.id}", json={"role": "VIEWER"})
 
@@ -97,7 +118,7 @@ def test_can_demote_an_admin_when_another_active_admin_exists(client, as_admin, 
 
 
 def test_can_demote_a_non_admin_freely(client, as_admin, db_session):
-    target = _make_user(db_session, Role.FINANCIAL)
+    target = _make_user(db_session, Role.FINANCIAL, organization_id=as_admin.organization_id)
 
     response = client.patch(f"/users/{target.id}", json={"active": False})
 

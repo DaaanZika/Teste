@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
+    admin,
     audit,
     auth,
     campaigns,
@@ -22,6 +23,7 @@ from app.api.routes import (
     finance,
     health,
     integrations,
+    organization,
     reports,
     revenues,
     users,
@@ -59,6 +61,8 @@ register_exception_handlers(app)
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(organization.router)
+app.include_router(admin.router)
 app.include_router(campaigns.router)
 app.include_router(integrations.router)
 app.include_router(documents.router)

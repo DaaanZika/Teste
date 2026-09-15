@@ -18,3 +18,6 @@ class AuditLogRead(BaseModel):
     new_value: str | None
     timestamp: datetime
     user_id: str | None
+    organization_id: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
