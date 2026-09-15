@@ -14,6 +14,7 @@ from app.models.session import Session
 from app.models.supplier import Supplier
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.models.user_permission import UserPermission
 
 __all__ = [
     "AuditLog",
@@ -33,4 +34,5 @@ __all__ = [
     "Supplier",
     "Transaction",
     "User",
+    "UserPermission",
 ]

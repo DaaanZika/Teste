@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import ForbiddenError, UnauthorizedError
-from app.core.rbac import Permission, role_has_permission
+from app.core.rbac import Permission, user_has_permission
 from app.models.enums import Role
 from app.models.organization import Organization
 from app.models.user import User
@@ -86,10 +86,14 @@ def get_current_user_id(user: User = Depends(get_current_user)) -> str:
 
 
 def require_permission(permission: Permission):
-    """FastAPI dependency factory: `Depends(require_permission(Permission.MANAGE_FINANCE))`."""
+    """FastAPI dependency factory: `Depends(require_permission(Permission.MANAGE_FINANCE))`.
 
-    def _dependency(user: User = Depends(get_current_user)) -> User:
-        if not role_has_permission(user.role, permission):
+    SUPER_ADMIN always passes (platform-level role, not permission-scoped);
+    CUSTOM is checked against per-user grants — see
+    app.core.rbac.user_has_permission for both."""
+
+    def _dependency(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+        if not user_has_permission(db, user, permission):
             raise ForbiddenError(
                 f"Seu papel ({user.role.value}) não tem permissão para esta ação "
                 f"(requer {permission.value})."
@@ -97,3 +101,14 @@ def require_permission(permission: Permission):
         return user
 
     return _dependency
+
+
+def require_super_admin(user: User = Depends(get_current_user)) -> User:
+    """Gate for the platform admin area (`/admin`). Deliberately a plain
+    role check, never a permission check — PROMPT 4's explicit rule is that
+    SUPER_ADMIN is structurally separate from organization roles, so no
+    combination of granted permissions could ever accidentally unlock this
+    (see app/core/rbac.py module docstring)."""
+    if user.role != Role.SUPER_ADMIN:
+        raise ForbiddenError("Esta área é exclusiva da administração da plataforma.")
+    return user
