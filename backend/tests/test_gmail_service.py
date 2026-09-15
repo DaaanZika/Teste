@@ -1,7 +1,11 @@
 """app/services/integrations/gmail_service.py — detection never imports
 anything by itself; only confirm_suggestion (a human action) does, and it
 runs the attachment through the same upload pipeline as a manual upload.
-All Gmail API calls are mocked — nothing here talks to a real mailbox."""
+All Gmail API calls are mocked — nothing here talks to a real mailbox.
+
+PROMPT 4: every call takes organization_id explicitly, the same as the
+route layer supplies it from the session — never trusted from elsewhere.
+"""
 from __future__ import annotations
 
 import base64
@@ -10,8 +14,10 @@ import uuid
 import pytest
 
 from app.core.exceptions import ConflictError, NotConfiguredError
+from app.models.campaign import Campaign
 from app.models.enums import GmailSuggestionStatus
 from app.models.gmail_suggestion import GmailSuggestion
+from app.models.organization import Organization
 from app.services.integrations import gmail_service
 
 
@@ -29,7 +35,12 @@ def connected_user(db_session):
     from app.models.user import User
 
     unique = uuid.uuid4().hex[:8]
-    u = User(name="Admin", email=f"gmail-admin-{unique}@example.com", role=Role.ADMIN, active=True)
+    org = Organization(name=f"Org {unique}", slug=f"org-{unique}")
+    db_session.add(org)
+    db_session.flush()
+    u = User(
+        name="Admin", email=f"gmail-admin-{unique}@example.com", role=Role.ADMIN, active=True, organization_id=org.id
+    )
     db_session.add(u)
     db_session.commit()
     db_session.refresh(u)
@@ -50,6 +61,23 @@ def connected_gmail(db_session, connected_user):
         expires_in_seconds=3600,
     )
     return connected_user
+
+
+@pytest.fixture()
+def campaign_for(db_session):
+    """A real, org-owned campaign for a given user's organization —
+    suggestions created directly (bypassing scan_inbox's own resolution)
+    need a genuine campaign_id to be reachable through the org boundary."""
+
+    def _make(user) -> Campaign:
+        unique = uuid.uuid4().hex[:8]
+        c = Campaign(name=f"Campanha {unique}", organization_id=user.organization_id)
+        db_session.add(c)
+        db_session.commit()
+        db_session.refresh(c)
+        return c
+
+    return _make
 
 
 class _FakeResponse:
@@ -99,8 +127,12 @@ MESSAGE_DETAIL = {
 
 
 def test_scan_without_connection_raises_not_configured(db_session):
+    unique = uuid.uuid4().hex[:8]
+    org = Organization(name=f"Org {unique}", slug=f"org-{unique}")
+    db_session.add(org)
+    db_session.commit()
     with pytest.raises(NotConfiguredError):
-        gmail_service.scan_inbox(db_session)
+        gmail_service.scan_inbox(db_session, organization_id=org.id)
 
 
 def test_scan_creates_suggestions_for_allowed_attachments_only(monkeypatch, db_session, connected_gmail):
@@ -114,7 +146,7 @@ def test_scan_creates_suggestions_for_allowed_attachments_only(monkeypatch, db_s
 
     monkeypatch.setattr(gmail_service.httpx, "get", fake_get)
 
-    created = gmail_service.scan_inbox(db_session, max_results=10)
+    created = gmail_service.scan_inbox(db_session, organization_id=connected_gmail.organization_id, max_results=10)
 
     filenames = {s.attachment_filename for s in created}
     assert filenames == {"nota-fiscal.pdf", "assinatura.png"}
@@ -126,6 +158,7 @@ def test_scan_creates_suggestions_for_allowed_attachments_only(monkeypatch, db_s
     assert pdf_suggestion.status == GmailSuggestionStatus.PENDING
     assert pdf_suggestion.gmail_message_id == "msg-1"
     assert pdf_suggestion.received_at is not None
+    assert pdf_suggestion.campaign_id is not None
 
 
 def test_scan_is_idempotent_across_reruns(monkeypatch, db_session, connected_gmail):
@@ -162,15 +195,17 @@ def test_scan_is_idempotent_across_reruns(monkeypatch, db_session, connected_gma
 
     monkeypatch.setattr(gmail_service.httpx, "get", fake_get)
 
-    first = gmail_service.scan_inbox(db_session)
-    second = gmail_service.scan_inbox(db_session)
+    first = gmail_service.scan_inbox(db_session, organization_id=connected_gmail.organization_id)
+    second = gmail_service.scan_inbox(db_session, organization_id=connected_gmail.organization_id)
 
     assert len(first) == 2
     assert len(second) == 0  # both attachments already suggested — not duplicated
 
 
-def test_list_suggestions_filters_by_status(db_session, connected_gmail):
+def test_list_suggestions_filters_by_status(db_session, connected_gmail, campaign_for):
+    campaign = campaign_for(connected_gmail)
     s1 = GmailSuggestion(
+        campaign_id=campaign.id,
         gmail_message_id="m1",
         attachment_id="a1",
         attachment_filename="a.pdf",
@@ -178,6 +213,7 @@ def test_list_suggestions_filters_by_status(db_session, connected_gmail):
         status=GmailSuggestionStatus.PENDING,
     )
     s2 = GmailSuggestion(
+        campaign_id=campaign.id,
         gmail_message_id="m2",
         attachment_id="a2",
         attachment_filename="b.pdf",
@@ -187,13 +223,17 @@ def test_list_suggestions_filters_by_status(db_session, connected_gmail):
     db_session.add_all([s1, s2])
     db_session.commit()
 
-    pending = gmail_service.list_suggestions(db_session, status=GmailSuggestionStatus.PENDING)
+    pending = gmail_service.list_suggestions(
+        db_session, organization_id=connected_gmail.organization_id, status=GmailSuggestionStatus.PENDING
+    )
     assert {s.id for s in pending} >= {s1.id}
     assert s2.id not in {s.id for s in pending}
 
 
-def test_confirm_suggestion_downloads_and_uploads_document(monkeypatch, db_session, connected_gmail):
+def test_confirm_suggestion_downloads_and_uploads_document(monkeypatch, db_session, connected_gmail, campaign_for):
+    campaign = campaign_for(connected_gmail)
     suggestion = GmailSuggestion(
+        campaign_id=campaign.id,
         gmail_message_id="msg-confirm",
         attachment_id="att-confirm",
         attachment_filename="recibo.pdf",
@@ -213,7 +253,9 @@ def test_confirm_suggestion_downloads_and_uploads_document(monkeypatch, db_sessi
 
     monkeypatch.setattr(gmail_service.httpx, "get", fake_get)
 
-    result = gmail_service.confirm_suggestion(db_session, suggestion.id, user_id=connected_gmail.id)
+    result = gmail_service.confirm_suggestion(
+        db_session, suggestion.id, user_id=connected_gmail.id, organization_id=connected_gmail.organization_id
+    )
 
     assert result.document.original_filename == "recibo.pdf"
     db_session.refresh(suggestion)
@@ -221,8 +263,10 @@ def test_confirm_suggestion_downloads_and_uploads_document(monkeypatch, db_sessi
     assert suggestion.document_id == result.document.id
 
 
-def test_confirm_suggestion_twice_raises_conflict(monkeypatch, db_session, connected_gmail):
+def test_confirm_suggestion_twice_raises_conflict(monkeypatch, db_session, connected_gmail, campaign_for):
+    campaign = campaign_for(connected_gmail)
     suggestion = GmailSuggestion(
+        campaign_id=campaign.id,
         gmail_message_id="msg-confirm-2",
         attachment_id="att-confirm-2",
         attachment_filename="recibo2.pdf",
@@ -234,11 +278,40 @@ def test_confirm_suggestion_twice_raises_conflict(monkeypatch, db_session, conne
     db_session.refresh(suggestion)
 
     with pytest.raises(ConflictError):
-        gmail_service.confirm_suggestion(db_session, suggestion.id)
+        gmail_service.confirm_suggestion(db_session, suggestion.id, organization_id=connected_gmail.organization_id)
 
 
-def test_reject_suggestion_never_touches_mailbox(monkeypatch, db_session):
+def test_confirm_suggestion_from_another_organization_is_not_found(db_session, connected_gmail, campaign_for):
+    """A suggestion belonging to a different organization must 404, never
+    be confirmed by this caller."""
+    from app.core.exceptions import NotFoundError
+
+    campaign = campaign_for(connected_gmail)
     suggestion = GmailSuggestion(
+        campaign_id=campaign.id,
+        gmail_message_id="msg-cross-org",
+        attachment_id="att-cross-org",
+        attachment_filename="recibo-cross.pdf",
+        mime_type="application/pdf",
+        status=GmailSuggestionStatus.PENDING,
+    )
+    db_session.add(suggestion)
+    db_session.commit()
+    db_session.refresh(suggestion)
+
+    unique = uuid.uuid4().hex[:8]
+    other_org = Organization(name=f"Other {unique}", slug=f"other-{unique}")
+    db_session.add(other_org)
+    db_session.commit()
+
+    with pytest.raises(NotFoundError):
+        gmail_service.confirm_suggestion(db_session, suggestion.id, organization_id=other_org.id)
+
+
+def test_reject_suggestion_never_touches_mailbox(monkeypatch, db_session, connected_gmail, campaign_for):
+    campaign = campaign_for(connected_gmail)
+    suggestion = GmailSuggestion(
+        campaign_id=campaign.id,
         gmail_message_id="msg-reject",
         attachment_id="att-reject",
         attachment_filename="irrelevante.pdf",
@@ -256,14 +329,18 @@ def test_reject_suggestion_never_touches_mailbox(monkeypatch, db_session):
     monkeypatch.setattr(gmail_service.httpx, "post", fail_if_called)
     monkeypatch.setattr(gmail_service.httpx, "delete", fail_if_called)
 
-    result = gmail_service.reject_suggestion(db_session, suggestion.id, reason="Não é um documento fiscal")
+    result = gmail_service.reject_suggestion(
+        db_session, suggestion.id, reason="Não é um documento fiscal", organization_id=connected_gmail.organization_id
+    )
 
     assert result.status == GmailSuggestionStatus.REJECTED
     assert result.rejected_reason == "Não é um documento fiscal"
 
 
-def test_reject_suggestion_twice_raises_conflict(db_session):
+def test_reject_suggestion_twice_raises_conflict(db_session, connected_gmail, campaign_for):
+    campaign = campaign_for(connected_gmail)
     suggestion = GmailSuggestion(
+        campaign_id=campaign.id,
         gmail_message_id="msg-reject-2",
         attachment_id="att-reject-2",
         attachment_filename="irrelevante2.pdf",
@@ -275,4 +352,4 @@ def test_reject_suggestion_twice_raises_conflict(db_session):
     db_session.refresh(suggestion)
 
     with pytest.raises(ConflictError):
-        gmail_service.reject_suggestion(db_session, suggestion.id)
+        gmail_service.reject_suggestion(db_session, suggestion.id, organization_id=connected_gmail.organization_id)

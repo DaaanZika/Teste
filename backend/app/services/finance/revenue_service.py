@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
+from app.models.campaign import Campaign
 from app.models.enums import AlertType, AuditAction, DocumentLinkStatus, RevenueStatus
 from app.models.revenue import Revenue
 from app.services.audit.audit_service import record as record_audit
@@ -74,10 +75,27 @@ def get_revenue(db: Session, revenue_id: str) -> Revenue:
     return revenue
 
 
+def get_revenue_in_org(db: Session, revenue_id: str, *, organization_id: str) -> Revenue:
+    """404s (never a bare 403) for a revenue outside `organization_id`,
+    even one that genuinely exists — never confirms cross-org existence."""
+    revenue = db.get(Revenue, revenue_id)
+    if revenue is None or revenue.campaign_id is None:
+        raise NotFoundError(f"Receita {revenue_id} não encontrada.")
+    campaign = db.get(Campaign, revenue.campaign_id)
+    if campaign is None or campaign.organization_id != organization_id:
+        raise NotFoundError(f"Receita {revenue_id} não encontrada.")
+    return revenue
+
+
 def list_revenues(
-    db: Session, *, campaign_id: str | None = None, status: RevenueStatus | None = None
+    db: Session, *, organization_id: str, campaign_id: str | None = None, status: RevenueStatus | None = None
 ) -> list[Revenue]:
-    stmt = select(Revenue).order_by(Revenue.created_at.desc())
+    stmt = (
+        select(Revenue)
+        .join(Campaign, Revenue.campaign_id == Campaign.id)
+        .where(Campaign.organization_id == organization_id)
+        .order_by(Revenue.created_at.desc())
+    )
     if campaign_id is not None:
         stmt = stmt.where(Revenue.campaign_id == campaign_id)
     if status is not None:

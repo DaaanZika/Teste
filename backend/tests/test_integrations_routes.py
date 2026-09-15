@@ -11,6 +11,7 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.main import app as fastapi_app
 from app.models.enums import Role
+from app.models.organization import Organization
 from app.models.user import User
 
 
@@ -20,7 +21,16 @@ def as_role(db_session):
 
     def _use(role: Role) -> User:
         unique = uuid.uuid4().hex[:8]
-        user = User(name=f"Test {role.value}", email=f"integrations-{role.value.lower()}-{unique}@example.com", role=role, active=True)
+        org = Organization(name=f"Org {unique}", slug=f"org-{unique}")
+        db_session.add(org)
+        db_session.flush()
+        user = User(
+            name=f"Test {role.value}",
+            email=f"integrations-{role.value.lower()}-{unique}@example.com",
+            role=role,
+            active=True,
+            organization_id=org.id,
+        )
         db_session.add(user)
         db_session.commit()
         db_session.refresh(user)
@@ -245,11 +255,16 @@ def test_gmail_scan_then_confirm_end_to_end(client, as_role, db_session, monkeyp
 
 
 def test_gmail_reject_via_route(client, as_role, db_session):
+    from app.models.campaign import Campaign
     from app.models.enums import GmailSuggestionStatus
     from app.models.gmail_suggestion import GmailSuggestion
 
-    as_role(Role.FINANCIAL)
+    actor = as_role(Role.FINANCIAL)
+    campaign = Campaign(name="Campanha Reject", organization_id=actor.organization_id)
+    db_session.add(campaign)
+    db_session.flush()
     suggestion = GmailSuggestion(
+        campaign_id=campaign.id,
         gmail_message_id="msg-reject-route",
         attachment_id="att-reject-route",
         attachment_filename="descartar.pdf",

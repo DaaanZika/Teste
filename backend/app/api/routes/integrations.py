@@ -8,6 +8,7 @@ from app.api.deps import get_current_user_id, get_db, require_permission
 from app.core.config import get_settings
 from app.core.health import check_database, check_redis
 from app.core.rbac import Permission
+from app.core.tenancy import require_organization_scope
 from app.models.enums import GmailSuggestionStatus
 from app.models.user import User
 from app.schemas.document import DocumentUploadResponse, DocumentRead
@@ -125,19 +126,27 @@ def disconnect_gmail(db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/gmail/scan", response_model=GmailScanResponse, dependencies=[_can_manage_documents])
-def scan_gmail(payload: GmailScanRequest, db: Session = Depends(get_db)) -> GmailScanResponse:
+def scan_gmail(
+    payload: GmailScanRequest,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> GmailScanResponse:
     """Detects candidate attachments — never imports anything by itself
     (PROMPT 3 §13/§45). Safe to call repeatedly: already-seen attachments
     are skipped, not duplicated."""
-    new_suggestions = gmail_service.scan_inbox(db, campaign_id=payload.campaign_id, max_results=payload.max_results)
+    new_suggestions = gmail_service.scan_inbox(
+        db, organization_id=organization_id, campaign_id=payload.campaign_id, max_results=payload.max_results
+    )
     return GmailScanResponse(new_suggestions=[GmailSuggestionRead.model_validate(s) for s in new_suggestions])
 
 
 @router.get("/gmail/suggestions", response_model=list[GmailSuggestionRead], dependencies=[_can_view_documents])
 def list_gmail_suggestions(
-    status: GmailSuggestionStatus | None = None, db: Session = Depends(get_db)
+    status: GmailSuggestionStatus | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
 ) -> list[GmailSuggestionRead]:
-    suggestions = gmail_service.list_suggestions(db, status=status)
+    suggestions = gmail_service.list_suggestions(db, organization_id=organization_id, status=status)
     return [GmailSuggestionRead.model_validate(s) for s in suggestions]
 
 
@@ -147,13 +156,16 @@ def list_gmail_suggestions(
     dependencies=[_can_manage_documents],
 )
 def confirm_gmail_suggestion(
-    suggestion_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
+    suggestion_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    organization_id: str = Depends(require_organization_scope),
 ) -> DocumentUploadResponse:
     """The only path by which a Gmail suggestion becomes a real Document —
     downloads the attachment for real and runs it through the exact same
     upload pipeline as a manual upload (validation, duplicate detection,
     audit log included)."""
-    result = gmail_service.confirm_suggestion(db, suggestion_id, user_id=user_id)
+    result = gmail_service.confirm_suggestion(db, suggestion_id, user_id=user_id, organization_id=organization_id)
     return DocumentUploadResponse(
         document=DocumentRead.model_validate(result.document),
         possible_duplicate=result.possible_duplicate,
@@ -167,7 +179,12 @@ def confirm_gmail_suggestion(
     dependencies=[_can_manage_documents],
 )
 def reject_gmail_suggestion(
-    suggestion_id: str, payload: GmailRejectRequest, db: Session = Depends(get_db)
+    suggestion_id: str,
+    payload: GmailRejectRequest,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
 ) -> GmailSuggestionRead:
-    suggestion = gmail_service.reject_suggestion(db, suggestion_id, reason=payload.reason)
+    suggestion = gmail_service.reject_suggestion(
+        db, suggestion_id, reason=payload.reason, organization_id=organization_id
+    )
     return GmailSuggestionRead.model_validate(suggestion)

@@ -1,14 +1,23 @@
 """app/services/documents/duplicate_detector.py — the logical-duplicate
 path (same date+amount+identifier across a DIFFERENT file hash, e.g. a
 re-scanned receipt) had zero test coverage before this file; only the
-fast exact-hash path was exercised elsewhere (tests/test_documents.py)."""
+fast exact-hash path was exercised elsewhere (tests/test_documents.py).
+
+PROMPT 4: every match is scoped to an organization (via the document's
+campaign) — every test here creates a real Organization+Campaign and
+passes organization_id explicitly, the same as the route layer does.
+"""
 from __future__ import annotations
 
 import uuid
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
+from app.models.campaign import Campaign
 from app.models.document import Document
+from app.models.organization import Organization
 from app.services.documents.duplicate_detector import (
     check_duplicates,
     find_hash_duplicate,
@@ -16,8 +25,22 @@ from app.services.documents.duplicate_detector import (
 )
 
 
-def _document(db_session, **overrides) -> Document:
+@pytest.fixture()
+def campaign(db_session) -> Campaign:
+    unique = uuid.uuid4().hex[:8]
+    org = Organization(name=f"Org {unique}", slug=f"org-{unique}")
+    db_session.add(org)
+    db_session.flush()
+    c = Campaign(name=f"Campanha {unique}", organization_id=org.id)
+    db_session.add(c)
+    db_session.commit()
+    db_session.refresh(c)
+    return c
+
+
+def _document(db_session, campaign: Campaign, **overrides) -> Document:
     defaults = dict(
+        campaign_id=campaign.id,
         original_filename="doc.pdf",
         mime_type="application/pdf",
         file_extension="pdf",
@@ -33,26 +56,42 @@ def _document(db_session, **overrides) -> Document:
     return doc
 
 
-def test_find_hash_duplicate_matches_exact_hash(db_session):
-    existing = _document(db_session, sha256_hash="abc123")
-    match = find_hash_duplicate(db_session, "abc123")
+def test_find_hash_duplicate_matches_exact_hash(db_session, campaign):
+    existing = _document(db_session, campaign, sha256_hash="abc123")
+    match = find_hash_duplicate(db_session, "abc123", organization_id=campaign.organization_id)
     assert match is not None
     assert match.id == existing.id
 
 
-def test_find_hash_duplicate_no_match_for_unknown_hash(db_session):
-    assert find_hash_duplicate(db_session, "never-seen-hash") is None
+def test_find_hash_duplicate_no_match_for_unknown_hash(db_session, campaign):
+    assert find_hash_duplicate(db_session, "never-seen-hash", organization_id=campaign.organization_id) is None
 
 
-def test_logical_duplicate_matches_by_cnpj(db_session):
+def test_find_hash_duplicate_does_not_match_across_organizations(db_session, campaign):
+    """The core PROMPT 4 guarantee: a hash match in a DIFFERENT
+    organization must never be surfaced to this caller."""
+    _document(db_session, campaign, sha256_hash="cross-org-hash")
+
+    unique = uuid.uuid4().hex[:8]
+    other_org = Organization(name=f"Other {unique}", slug=f"other-{unique}")
+    db_session.add(other_org)
+    db_session.flush()
+
+    match = find_hash_duplicate(db_session, "cross-org-hash", organization_id=other_org.id)
+    assert match is None
+
+
+def test_logical_duplicate_matches_by_cnpj(db_session, campaign):
     existing = _document(
         db_session,
+        campaign,
         extracted_date=date(2024, 3, 1),
         extracted_amount=Decimal("150.00"),
         extracted_cnpj="12.345.678/0001-99",
     )
     match = find_logical_duplicate(
         db_session,
+        organization_id=campaign.organization_id,
         extracted_date=date(2024, 3, 1),
         extracted_amount=Decimal("150.00"),
         supplier_name=None,
@@ -64,12 +103,17 @@ def test_logical_duplicate_matches_by_cnpj(db_session):
     assert match.id == existing.id
 
 
-def test_logical_duplicate_matches_by_cpf(db_session):
+def test_logical_duplicate_matches_by_cpf(db_session, campaign):
     existing = _document(
-        db_session, extracted_date=date(2024, 4, 1), extracted_amount=Decimal("75.50"), extracted_cpf="123.456.789-00"
+        db_session,
+        campaign,
+        extracted_date=date(2024, 4, 1),
+        extracted_amount=Decimal("75.50"),
+        extracted_cpf="123.456.789-00",
     )
     match = find_logical_duplicate(
         db_session,
+        organization_id=campaign.organization_id,
         extracted_date=date(2024, 4, 1),
         extracted_amount=Decimal("75.50"),
         supplier_name=None,
@@ -80,15 +124,17 @@ def test_logical_duplicate_matches_by_cpf(db_session):
     assert match is not None and match.id == existing.id
 
 
-def test_logical_duplicate_matches_by_document_number(db_session):
+def test_logical_duplicate_matches_by_document_number(db_session, campaign):
     existing = _document(
         db_session,
+        campaign,
         extracted_date=date(2024, 5, 1),
         extracted_amount=Decimal("300.00"),
         extracted_document_number="NF-12345",
     )
     match = find_logical_duplicate(
         db_session,
+        organization_id=campaign.organization_id,
         extracted_date=date(2024, 5, 1),
         extracted_amount=Decimal("300.00"),
         supplier_name=None,
@@ -99,15 +145,17 @@ def test_logical_duplicate_matches_by_document_number(db_session):
     assert match is not None and match.id == existing.id
 
 
-def test_logical_duplicate_matches_by_supplier_name_case_insensitive(db_session):
+def test_logical_duplicate_matches_by_supplier_name_case_insensitive(db_session, campaign):
     existing = _document(
         db_session,
+        campaign,
         extracted_date=date(2024, 6, 1),
         extracted_amount=Decimal("50.00"),
         extracted_supplier_name="Gráfica São José",
     )
     match = find_logical_duplicate(
         db_session,
+        organization_id=campaign.organization_id,
         extracted_date=date(2024, 6, 1),
         extracted_amount=Decimal("50.00"),
         supplier_name="  GRÁFICA SÃO JOSÉ  ",
@@ -118,12 +166,17 @@ def test_logical_duplicate_matches_by_supplier_name_case_insensitive(db_session)
     assert match is not None and match.id == existing.id
 
 
-def test_logical_duplicate_no_match_when_amount_differs(db_session):
+def test_logical_duplicate_no_match_when_amount_differs(db_session, campaign):
     _document(
-        db_session, extracted_date=date(2024, 7, 1), extracted_amount=Decimal("100.00"), extracted_cnpj="11.111.111/0001-11"
+        db_session,
+        campaign,
+        extracted_date=date(2024, 7, 1),
+        extracted_amount=Decimal("100.00"),
+        extracted_cnpj="11.111.111/0001-11",
     )
     match = find_logical_duplicate(
         db_session,
+        organization_id=campaign.organization_id,
         extracted_date=date(2024, 7, 1),
         extracted_amount=Decimal("200.00"),  # different
         supplier_name=None,
@@ -134,12 +187,17 @@ def test_logical_duplicate_no_match_when_amount_differs(db_session):
     assert match is None
 
 
-def test_logical_duplicate_no_match_when_date_differs(db_session):
+def test_logical_duplicate_no_match_when_date_differs(db_session, campaign):
     _document(
-        db_session, extracted_date=date(2024, 8, 1), extracted_amount=Decimal("100.00"), extracted_cnpj="22.222.222/0001-22"
+        db_session,
+        campaign,
+        extracted_date=date(2024, 8, 1),
+        extracted_amount=Decimal("100.00"),
+        extracted_cnpj="22.222.222/0001-22",
     )
     match = find_logical_duplicate(
         db_session,
+        organization_id=campaign.organization_id,
         extracted_date=date(2024, 8, 2),  # different
         extracted_amount=Decimal("100.00"),
         supplier_name=None,
@@ -157,6 +215,7 @@ def test_logical_duplicate_requires_date_and_amount():
     assert (
         find_logical_duplicate(
             None,  # never reaches the query — short-circuits before touching db
+            organization_id="irrelevant-not-queried",
             extracted_date=None,
             extracted_amount=Decimal("100.00"),
             supplier_name=None,
@@ -168,10 +227,11 @@ def test_logical_duplicate_requires_date_and_amount():
     )
 
 
-def test_logical_duplicate_requires_at_least_one_identifying_field(db_session):
-    _document(db_session, extracted_date=date(2024, 9, 1), extracted_amount=Decimal("100.00"))
+def test_logical_duplicate_requires_at_least_one_identifying_field(db_session, campaign):
+    _document(db_session, campaign, extracted_date=date(2024, 9, 1), extracted_amount=Decimal("100.00"))
     match = find_logical_duplicate(
         db_session,
+        organization_id=campaign.organization_id,
         extracted_date=date(2024, 9, 1),
         extracted_amount=Decimal("100.00"),
         supplier_name=None,
@@ -182,11 +242,12 @@ def test_logical_duplicate_requires_at_least_one_identifying_field(db_session):
     assert match is None
 
 
-def test_check_duplicates_prefers_hash_match_over_logical_match(db_session):
+def test_check_duplicates_prefers_hash_match_over_logical_match(db_session, campaign):
     """When both would match, the cheaper/more certain hash check wins and
     is the only reason reported."""
     existing = _document(
         db_session,
+        campaign,
         sha256_hash="shared-hash",
         extracted_date=date(2024, 10, 1),
         extracted_amount=Decimal("100.00"),
@@ -194,6 +255,7 @@ def test_check_duplicates_prefers_hash_match_over_logical_match(db_session):
     )
     result = check_duplicates(
         db_session,
+        organization_id=campaign.organization_id,
         sha256_hash="shared-hash",
         extracted_date=date(2024, 10, 1),
         extracted_amount=Decimal("100.00"),
@@ -204,15 +266,17 @@ def test_check_duplicates_prefers_hash_match_over_logical_match(db_session):
     assert result.reasons == ["same_file_hash"]
 
 
-def test_check_duplicates_falls_back_to_logical_match(db_session):
+def test_check_duplicates_falls_back_to_logical_match(db_session, campaign):
     existing = _document(
         db_session,
+        campaign,
         extracted_date=date(2024, 11, 1),
         extracted_amount=Decimal("250.00"),
         extracted_document_number="NF-999",
     )
     result = check_duplicates(
         db_session,
+        organization_id=campaign.organization_id,
         sha256_hash="a-completely-different-hash",
         extracted_date=date(2024, 11, 1),
         extracted_amount=Decimal("250.00"),
@@ -223,9 +287,10 @@ def test_check_duplicates_falls_back_to_logical_match(db_session):
     assert result.reasons == ["matching_date_amount_and_identifier"]
 
 
-def test_check_duplicates_no_match_at_all(db_session):
+def test_check_duplicates_no_match_at_all(db_session, campaign):
     result = check_duplicates(
         db_session,
+        organization_id=campaign.organization_id,
         sha256_hash="totally-unique-hash",
         extracted_date=date(2024, 12, 1),
         extracted_amount=Decimal("500.00"),

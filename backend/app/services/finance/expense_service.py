@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
-from app.models.document import Document
+from app.models.campaign import Campaign
 from app.models.enums import AlertType, AuditAction, DocumentLinkStatus, ExpenseStatus
 from app.models.expense import Expense
 from app.services.audit.audit_service import record as record_audit
@@ -115,10 +115,27 @@ def get_expense(db: Session, expense_id: str) -> Expense:
     return expense
 
 
+def get_expense_in_org(db: Session, expense_id: str, *, organization_id: str) -> Expense:
+    """404s (never a bare 403) for an expense outside `organization_id`,
+    even one that genuinely exists — never confirms cross-org existence."""
+    expense = db.get(Expense, expense_id)
+    if expense is None or expense.campaign_id is None:
+        raise NotFoundError(f"Despesa {expense_id} não encontrada.")
+    campaign = db.get(Campaign, expense.campaign_id)
+    if campaign is None or campaign.organization_id != organization_id:
+        raise NotFoundError(f"Despesa {expense_id} não encontrada.")
+    return expense
+
+
 def list_expenses(
-    db: Session, *, campaign_id: str | None = None, status: ExpenseStatus | None = None
+    db: Session, *, organization_id: str, campaign_id: str | None = None, status: ExpenseStatus | None = None
 ) -> list[Expense]:
-    stmt = select(Expense).order_by(Expense.created_at.desc())
+    stmt = (
+        select(Expense)
+        .join(Campaign, Expense.campaign_id == Campaign.id)
+        .where(Campaign.organization_id == organization_id)
+        .order_by(Expense.created_at.desc())
+    )
     if campaign_id is not None:
         stmt = stmt.where(Expense.campaign_id == campaign_id)
     if status is not None:
@@ -126,14 +143,17 @@ def list_expenses(
     return list(db.execute(stmt).scalars())
 
 
-def update_expense(db: Session, expense_id: str, updates: dict, *, user_id: str | None = None) -> Expense:
-    expense = get_expense(db, expense_id)
+def update_expense(
+    db: Session, expense_id: str, updates: dict, *, user_id: str | None = None, organization_id: str
+) -> Expense:
+    expense = get_expense_in_org(db, expense_id, organization_id=organization_id)
     old_values = {k: getattr(expense, k) for k in updates}
 
     if "document_id" in updates and updates["document_id"]:
-        document = db.get(Document, updates["document_id"])
-        if document is None:
-            raise NotFoundError(f"Documento {updates['document_id']} não encontrado.")
+        from app.services.documents.document_service import get_document_in_org
+
+        # Never let an expense in this org link to another org's document.
+        document = get_document_in_org(db, updates["document_id"], organization_id=organization_id)
 
     for field, value in updates.items():
         if value is not None:

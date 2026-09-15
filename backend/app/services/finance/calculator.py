@@ -28,13 +28,21 @@ def _transactions(
     db: Session,
     *,
     campaign_id: str | None = None,
+    campaign_ids: list[str] | None = None,
     type_: TransactionType | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[Transaction]:
+    """`campaign_ids` (PROMPT 4) scopes to a whole organization's campaigns
+    at once — routes pass it whenever no single campaign_id was requested,
+    so an aggregate with no explicit filter still never crosses an
+    organization boundary. `campaign_id` (a single id, pre-PROMPT-4) takes
+    precedence when both are given."""
     stmt = select(Transaction)
     if campaign_id is not None:
         stmt = stmt.where(Transaction.campaign_id == campaign_id)
+    elif campaign_ids is not None:
+        stmt = stmt.where(Transaction.campaign_id.in_(campaign_ids))
     if type_ is not None:
         stmt = stmt.where(Transaction.type == type_)
     if start_date is not None:
@@ -45,29 +53,54 @@ def _transactions(
 
 
 def total_revenues(
-    db: Session, *, campaign_id: str | None = None, start_date: date | None = None, end_date: date | None = None
+    db: Session,
+    *,
+    campaign_id: str | None = None,
+    campaign_ids: list[str] | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> Decimal:
     rows = _transactions(
-        db, campaign_id=campaign_id, type_=TransactionType.REVENUE, start_date=start_date, end_date=end_date
+        db,
+        campaign_id=campaign_id,
+        campaign_ids=campaign_ids,
+        type_=TransactionType.REVENUE,
+        start_date=start_date,
+        end_date=end_date,
     )
     return _quantize(sum((r.amount for r in rows), Decimal("0")))
 
 
 def total_expenses(
-    db: Session, *, campaign_id: str | None = None, start_date: date | None = None, end_date: date | None = None
+    db: Session,
+    *,
+    campaign_id: str | None = None,
+    campaign_ids: list[str] | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> Decimal:
     rows = _transactions(
-        db, campaign_id=campaign_id, type_=TransactionType.EXPENSE, start_date=start_date, end_date=end_date
+        db,
+        campaign_id=campaign_id,
+        campaign_ids=campaign_ids,
+        type_=TransactionType.EXPENSE,
+        start_date=start_date,
+        end_date=end_date,
     )
     return _quantize(sum((r.amount for r in rows), Decimal("0")))
 
 
 def balance(
-    db: Session, *, campaign_id: str | None = None, start_date: date | None = None, end_date: date | None = None
+    db: Session,
+    *,
+    campaign_id: str | None = None,
+    campaign_ids: list[str] | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> Decimal:
     return _quantize(
-        total_revenues(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
-        - total_expenses(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
+        total_revenues(db, campaign_id=campaign_id, campaign_ids=campaign_ids, start_date=start_date, end_date=end_date)
+        - total_expenses(db, campaign_id=campaign_id, campaign_ids=campaign_ids, start_date=start_date, end_date=end_date)
     )
 
 
@@ -78,6 +111,7 @@ def totals_by_period(
     db: Session,
     *,
     campaign_id: str | None = None,
+    campaign_ids: list[str] | None = None,
     granularity: str = "month",
     start_date: date | None = None,
     end_date: date | None = None,
@@ -94,7 +128,7 @@ def totals_by_period(
     if granularity not in _PERIOD_KEY_FORMATS:
         raise ValueError("granularity must be 'day', 'month' or 'year'")
 
-    rows = _transactions(db, campaign_id=campaign_id, start_date=start_date, end_date=end_date)
+    rows = _transactions(db, campaign_id=campaign_id, campaign_ids=campaign_ids, start_date=start_date, end_date=end_date)
     date_format = _PERIOD_KEY_FORMATS[granularity]
     totals: dict[str, dict[str, Decimal]] = {}
     for row in rows:
@@ -135,14 +169,18 @@ def _percentage_breakdown(rows: list[Transaction], key_fn) -> list[dict]:
 
 
 def totals_by_category(
-    db: Session, *, campaign_id: str | None = None, type_: TransactionType = TransactionType.EXPENSE
+    db: Session,
+    *,
+    campaign_id: str | None = None,
+    campaign_ids: list[str] | None = None,
+    type_: TransactionType = TransactionType.EXPENSE,
 ) -> list[dict]:
-    rows = _transactions(db, campaign_id=campaign_id, type_=type_)
+    rows = _transactions(db, campaign_id=campaign_id, campaign_ids=campaign_ids, type_=type_)
     breakdown = _percentage_breakdown(rows, lambda r: r.category)
     return [{"category": item["key"], **{k: v for k, v in item.items() if k != "key"}} for item in breakdown]
 
 
-def totals_by_supplier(db: Session, *, campaign_id: str | None = None) -> list[dict]:
-    rows = _transactions(db, campaign_id=campaign_id, type_=TransactionType.EXPENSE)
+def totals_by_supplier(db: Session, *, campaign_id: str | None = None, campaign_ids: list[str] | None = None) -> list[dict]:
+    rows = _transactions(db, campaign_id=campaign_id, campaign_ids=campaign_ids, type_=TransactionType.EXPENSE)
     breakdown = _percentage_breakdown(rows, lambda r: r.counterparty)
     return [{"supplier_name": item["key"], **{k: v for k, v in item.items() if k != "key"}} for item in breakdown]

@@ -17,9 +17,9 @@ from app.models.revenue import Revenue
 from app.services.finance import calculator
 
 
-def summary_report(db: Session, *, campaign_id: str | None = None) -> dict:
-    total_revenues = calculator.total_revenues(db, campaign_id=campaign_id)
-    total_expenses = calculator.total_expenses(db, campaign_id=campaign_id)
+def summary_report(db: Session, *, campaign_id: str | None = None, campaign_ids: list[str] | None = None) -> dict:
+    total_revenues = calculator.total_revenues(db, campaign_id=campaign_id, campaign_ids=campaign_ids)
+    total_expenses = calculator.total_expenses(db, campaign_id=campaign_id, campaign_ids=campaign_ids)
 
     pending_expenses_stmt = select(Expense).where(Expense.status == ExpenseStatus.PENDING_INFORMATION)
     pending_revenues_stmt = select(Revenue).where(Revenue.status == RevenueStatus.PENDING_INFORMATION)
@@ -28,6 +28,10 @@ def summary_report(db: Session, *, campaign_id: str | None = None) -> dict:
         pending_expenses_stmt = pending_expenses_stmt.where(Expense.campaign_id == campaign_id)
         pending_revenues_stmt = pending_revenues_stmt.where(Revenue.campaign_id == campaign_id)
         without_document_stmt = without_document_stmt.where(Expense.campaign_id == campaign_id)
+    elif campaign_ids is not None:
+        pending_expenses_stmt = pending_expenses_stmt.where(Expense.campaign_id.in_(campaign_ids))
+        pending_revenues_stmt = pending_revenues_stmt.where(Revenue.campaign_id.in_(campaign_ids))
+        without_document_stmt = without_document_stmt.where(Expense.campaign_id.in_(campaign_ids))
 
     return {
         "total_revenues": total_revenues,
@@ -39,10 +43,14 @@ def summary_report(db: Session, *, campaign_id: str | None = None) -> dict:
     }
 
 
-def expenses_report(db: Session, *, campaign_id: str | None = None) -> list[dict]:
+def expenses_report(
+    db: Session, *, campaign_id: str | None = None, campaign_ids: list[str] | None = None
+) -> list[dict]:
     stmt = select(Expense).order_by(Expense.date.desc().nullslast())
     if campaign_id is not None:
         stmt = stmt.where(Expense.campaign_id == campaign_id)
+    elif campaign_ids is not None:
+        stmt = stmt.where(Expense.campaign_id.in_(campaign_ids))
     rows = db.execute(stmt).scalars()
     return [
         {
@@ -59,10 +67,14 @@ def expenses_report(db: Session, *, campaign_id: str | None = None) -> list[dict
     ]
 
 
-def revenues_report(db: Session, *, campaign_id: str | None = None) -> list[dict]:
+def revenues_report(
+    db: Session, *, campaign_id: str | None = None, campaign_ids: list[str] | None = None
+) -> list[dict]:
     stmt = select(Revenue).order_by(Revenue.date.desc().nullslast())
     if campaign_id is not None:
         stmt = stmt.where(Revenue.campaign_id == campaign_id)
+    elif campaign_ids is not None:
+        stmt = stmt.where(Revenue.campaign_id.in_(campaign_ids))
     rows = db.execute(stmt).scalars()
     return [
         {
@@ -78,10 +90,14 @@ def revenues_report(db: Session, *, campaign_id: str | None = None) -> list[dict
     ]
 
 
-def documents_report(db: Session, *, campaign_id: str | None = None) -> dict:
+def documents_report(
+    db: Session, *, campaign_id: str | None = None, campaign_ids: list[str] | None = None
+) -> dict:
     stmt = select(Document)
     if campaign_id is not None:
         stmt = stmt.where(Document.campaign_id == campaign_id)
+    elif campaign_ids is not None:
+        stmt = stmt.where(Document.campaign_id.in_(campaign_ids))
     documents = list(db.execute(stmt).scalars())
 
     return {
@@ -96,7 +112,13 @@ def documents_report(db: Session, *, campaign_id: str | None = None) -> dict:
     }
 
 
-def audit_report(db: Session, *, entity: str | None = None, entity_id: str | None = None) -> dict:
+def audit_report(
+    db: Session,
+    *,
+    entity: str | None = None,
+    entity_id: str | None = None,
+    organization_id: str | None = None,
+) -> dict:
     from app.models.audit import AuditLog
 
     stmt = select(AuditLog).order_by(AuditLog.timestamp.desc())
@@ -104,6 +126,8 @@ def audit_report(db: Session, *, entity: str | None = None, entity_id: str | Non
         stmt = stmt.where(AuditLog.entity == entity)
     if entity_id is not None:
         stmt = stmt.where(AuditLog.entity_id == entity_id)
+    if organization_id is not None:
+        stmt = stmt.where(AuditLog.organization_id == organization_id)
     logs = list(db.execute(stmt).scalars())
 
     open_alerts = list(db.execute(select(ComplianceAlert).where(ComplianceAlert.status == AlertStatus.OPEN)))

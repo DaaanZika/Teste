@@ -29,6 +29,7 @@ from app.core.exceptions import (
     UnsupportedFileTypeError,
 )
 from app.integrations.storage_adapter import get_storage_provider, get_storage_provider_for_document
+from app.models.campaign import Campaign
 from app.models.document import Document, DocumentItem
 from app.models.enums import (
     AlertType,
@@ -42,7 +43,7 @@ from app.models.processing_job import ProcessingJob
 from app.services.audit.audit_service import record as record_audit
 from app.services.compliance.alerts import raise_alert
 from app.services.documents import backup_service
-from app.services.documents.duplicate_detector import check_duplicates, find_hash_duplicate
+from app.services.documents.duplicate_detector import DuplicateCheckResult, check_duplicates, find_hash_duplicate
 from app.services.documents.hashing import sha256_hex
 from app.services.ocr.confidence import requires_human_review, score_confidence
 from app.services.ocr.engine import run_ocr
@@ -86,16 +87,22 @@ def upload_document(
     filename: str,
     content: bytes,
     mime_type: str,
+    organization_id: str,
     campaign_id: str | None = None,
     user_id: str | None = None,
 ) -> UploadResult:
+    """`organization_id` (PROMPT 4) scopes duplicate detection — a hash/
+    field match in a different organization must never be surfaced to this
+    caller. `campaign_id`, when given, is trusted to already belong to
+    `organization_id` (the route resolves/validates it first — see
+    app.core.tenancy.resolve_campaign_id)."""
     extension = _validate_upload(filename, content, mime_type)
     file_hash = sha256_hex(content)
 
     # Exact-file duplicate (section 7): do NOT create a new document record
     # automatically. Surface the existing one with `possible_duplicate=True`
     # instead — the human decides whether to keep it, not the pipeline.
-    hash_match = find_hash_duplicate(db, file_hash)
+    hash_match = find_hash_duplicate(db, file_hash, organization_id=organization_id)
     if hash_match is not None:
         raise_alert(
             db,
@@ -156,10 +163,33 @@ def get_document(db: Session, document_id: str) -> Document:
     return document
 
 
+def get_document_in_org(db: Session, document_id: str, *, organization_id: str) -> Document:
+    """Like get_document, but 404s (never a bare 403 — no cross-org
+    existence leak) for a document outside `organization_id`, even one
+    that genuinely exists. Every route reachable by an organization-scoped
+    caller uses this, not the plain get_document above."""
+    document = db.get(Document, document_id)
+    if document is None or document.campaign_id is None:
+        raise NotFoundError(f"Documento {document_id} não encontrado.")
+    campaign = db.get(Campaign, document.campaign_id)
+    if campaign is None or campaign.organization_id != organization_id:
+        raise NotFoundError(f"Documento {document_id} não encontrado.")
+    return document
+
+
 def list_documents(
-    db: Session, *, status: DocumentStatus | None = None, campaign_id: str | None = None
+    db: Session,
+    *,
+    organization_id: str,
+    status: DocumentStatus | None = None,
+    campaign_id: str | None = None,
 ) -> list[Document]:
-    stmt = select(Document).order_by(Document.created_at.desc())
+    stmt = (
+        select(Document)
+        .join(Campaign, Document.campaign_id == Campaign.id)
+        .where(Campaign.organization_id == organization_id)
+        .order_by(Document.created_at.desc())
+    )
     if status is not None:
         stmt = stmt.where(Document.status == status)
     if campaign_id is not None:
@@ -257,15 +287,25 @@ def process_document(db: Session, document_id: str, *, user_id: str | None = Non
                 )
             )
 
-        logical_duplicate = check_duplicates(
-            db,
-            sha256_hash=document.sha256_hash,
-            extracted_date=extracted.data,
-            extracted_amount=extracted.valor,
-            supplier_name=extracted.fornecedor,
-            cnpj=extracted.cnpj,
-            cpf=extracted.cpf,
-            document_number=extracted.numero_documento,
+        # Derived from the document's own (already org-resolved-at-upload)
+        # campaign — process_document runs from the async worker with no
+        # request/session context, so organization_id can't come from a
+        # dependency here the way it does in the upload/list/get routes.
+        campaign = db.get(Campaign, document.campaign_id) if document.campaign_id else None
+        logical_duplicate = (
+            check_duplicates(
+                db,
+                organization_id=campaign.organization_id,
+                sha256_hash=document.sha256_hash,
+                extracted_date=extracted.data,
+                extracted_amount=extracted.valor,
+                supplier_name=extracted.fornecedor,
+                cnpj=extracted.cnpj,
+                cpf=extracted.cpf,
+                document_number=extracted.numero_documento,
+            )
+            if campaign is not None
+            else DuplicateCheckResult()
         )
         if logical_duplicate.is_possible_duplicate and logical_duplicate.duplicate_document_id != document.id:
             document.status = DocumentStatus.POSSIBLE_DUPLICATE

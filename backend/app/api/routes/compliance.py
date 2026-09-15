@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db, require_permission
 from app.core.rbac import Permission
+from app.core.tenancy import require_organization_scope, resolve_campaign_scope
 from app.models.compliance import ComplianceAlert, ComplianceRule
 from app.models.enums import AlertStatus
 from app.schemas.compliance import (
@@ -25,13 +26,19 @@ _can_manage_rules = Depends(require_permission(Permission.MANAGE_RULES))
 
 @router.get("/alerts", response_model=list[ComplianceAlertRead])
 def list_alerts(
-    status: AlertStatus | None = None, campaign_id: str | None = None, db: Session = Depends(get_db)
+    status: AlertStatus | None = None,
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
 ) -> list[ComplianceAlertRead]:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
     stmt = select(ComplianceAlert).order_by(ComplianceAlert.created_at.desc())
     if status is not None:
         stmt = stmt.where(ComplianceAlert.status == status)
-    if campaign_id is not None:
-        stmt = stmt.where(ComplianceAlert.campaign_id == campaign_id)
+    if resolved_campaign_id is not None:
+        stmt = stmt.where(ComplianceAlert.campaign_id == resolved_campaign_id)
+    elif campaign_ids is not None:
+        stmt = stmt.where(ComplianceAlert.campaign_id.in_(campaign_ids))
     alerts = db.execute(stmt).scalars()
     return [ComplianceAlertRead.model_validate(a) for a in alerts]
 

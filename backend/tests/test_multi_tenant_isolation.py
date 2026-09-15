@@ -173,3 +173,159 @@ def test_super_admin_without_organization_gets_403_on_regular_org_routes(client,
     assert response.status_code == 403
     response = client.get("/organization")
     assert response.status_code == 403
+
+
+# --- Documents/expenses/revenues/finance/reports/compliance/audit --------
+# The spec's own explicit examples: User A reaching Org B's document,
+# editing Org B's expense, and so on. Each test below creates the target
+# resource for real in Org A, then proves Org B's user cannot reach it.
+
+
+@pytest.fixture()
+def expense_in_org_a(db_session, two_orgs):
+    from app.models.enums import ExpenseStatus
+    from app.models.expense import Expense
+
+    org_a, org_b, campaign_a, owner_a, owner_b = two_orgs
+    expense = Expense(campaign_id=campaign_a.id, description="Despesa A", status=ExpenseStatus.PENDING_INFORMATION)
+    db_session.add(expense)
+    db_session.commit()
+    db_session.refresh(expense)
+    return expense
+
+
+@pytest.fixture()
+def revenue_in_org_a(db_session, two_orgs):
+    from app.models.enums import RevenueStatus
+    from app.models.revenue import Revenue
+
+    org_a, org_b, campaign_a, owner_a, owner_b = two_orgs
+    revenue = Revenue(campaign_id=campaign_a.id, source_type="doacao", status=RevenueStatus.PENDING_INFORMATION)
+    db_session.add(revenue)
+    db_session.commit()
+    db_session.refresh(revenue)
+    return revenue
+
+
+@pytest.fixture()
+def document_in_org_a(db_session, two_orgs):
+    from app.models.document import Document
+
+    org_a, org_b, campaign_a, owner_a, owner_b = two_orgs
+    document = Document(
+        campaign_id=campaign_a.id,
+        original_filename="nota.pdf",
+        mime_type="application/pdf",
+        file_extension="pdf",
+        file_size_bytes=10,
+        sha256_hash=uuid.uuid4().hex,
+        original_path="originals/nota.pdf",
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+    return document
+
+
+def test_user_b_cannot_view_org_a_document(client, two_orgs, document_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.get(f"/documents/{document_in_org_a.id}")
+    assert response.status_code == 404
+
+
+def test_user_b_cannot_list_org_a_document(client, two_orgs, document_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.get("/documents")
+    assert response.status_code == 200
+    assert all(d["id"] != document_in_org_a.id for d in response.json())
+
+
+def test_user_b_cannot_view_org_a_expense(client, two_orgs, expense_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.get(f"/expenses/{expense_in_org_a.id}")
+    assert response.status_code == 404
+
+
+def test_user_b_cannot_edit_org_a_expense(client, two_orgs, expense_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.put(f"/expenses/{expense_in_org_a.id}", json={"description": "Hijacked"})
+    assert response.status_code == 404
+
+
+def test_user_b_cannot_view_org_a_revenue(client, two_orgs, revenue_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.get(f"/revenues/{revenue_in_org_a.id}")
+    assert response.status_code == 404
+
+
+def test_org_a_expense_invisible_in_org_b_listing(client, two_orgs, expense_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.get("/expenses")
+    assert response.status_code == 200
+    assert all(e["id"] != expense_in_org_a.id for e in response.json())
+
+
+def test_created_expense_lands_in_callers_own_campaign_not_client_supplied(client, two_orgs, db_session):
+    """Even if the payload names a campaign_id belonging to Org A, Org B's
+    caller must never be able to attach an expense to it."""
+    org_a, org_b, campaign_a, owner_a, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.post("/expenses", json={"campaign_id": campaign_a.id, "description": "Tentativa"})
+    assert response.status_code == 404
+
+
+def test_finance_summary_never_aggregates_across_organizations(client, two_orgs, expense_in_org_a, db_session):
+    from decimal import Decimal
+
+    org_a, org_b, campaign_a, owner_a, owner_b = two_orgs
+    expense_in_org_a.amount = Decimal("1000.00")
+    db_session.commit()
+
+    from app.services.finance.ledger import sync_transaction_for_expense
+
+    sync_transaction_for_expense(db_session, expense_in_org_a)
+    db_session.commit()
+
+    _act_as(owner_b)
+    response = client.get("/finance/summary")
+    assert response.status_code == 200
+    assert float(response.json()["total_expenses"]) == 0.0
+
+
+def test_reports_never_leak_org_a_expenses_to_org_b(client, two_orgs, expense_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.get("/reports/expenses")
+    assert response.status_code == 200
+    assert all(row["id"] != expense_in_org_a.id for row in response.json())
+
+
+def test_audit_entity_lookup_across_orgs_404s(client, two_orgs, expense_in_org_a):
+    _, _, _, _, owner_b = two_orgs
+    _act_as(owner_b)
+    response = client.get("/audit", params={"entity": "expense", "entity_id": expense_in_org_a.id})
+    assert response.status_code == 404
+
+
+def test_compliance_alerts_scoped_to_own_org(client, two_orgs, db_session):
+    from app.models.compliance import ComplianceAlert
+    from app.models.enums import AlertType
+
+    org_a, org_b, campaign_a, owner_a, owner_b = two_orgs
+    alert = ComplianceAlert(
+        campaign_id=campaign_a.id, type=AlertType.WARNING, title="Alerta A", message="msg"
+    )
+    db_session.add(alert)
+    db_session.commit()
+    db_session.refresh(alert)
+
+    _act_as(owner_b)
+    response = client.get("/compliance/alerts")
+    assert response.status_code == 200
+    assert all(a["id"] != alert.id for a in response.json())

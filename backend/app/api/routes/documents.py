@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user_id, get_db, require_permission
 from app.core.config import get_settings
 from app.core.rbac import Permission
+from app.core.tenancy import require_organization_scope, resolve_campaign_id
 from app.integrations.storage_adapter import get_storage_provider_for_document
 from app.models.enums import DocumentStatus
 from app.schemas.document import DocumentCorrection, DocumentRead, DocumentUploadResponse
@@ -24,15 +25,21 @@ async def upload_document(
     campaign_id: str | None = Form(default=None),
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
+    organization_id: str = Depends(require_organization_scope),
 ) -> DocumentUploadResponse:
+    # A client-supplied campaign_id must belong to the caller's own
+    # organization (404 otherwise); no campaign_id resolves to this
+    # organization's default campaign — never left orgless.
+    resolved_campaign_id = resolve_campaign_id(db, organization_id, campaign_id)
     content = await file.read()
     result = document_service.upload_document(
         db,
         filename=file.filename or "documento",
         content=content,
         mime_type=file.content_type or "application/octet-stream",
-        campaign_id=campaign_id,
+        campaign_id=resolved_campaign_id,
         user_id=user_id,
+        organization_id=organization_id,
     )
     return DocumentUploadResponse(
         document=DocumentRead.model_validate(result.document),
@@ -46,23 +53,30 @@ def list_documents(
     status: DocumentStatus | None = None,
     campaign_id: str | None = None,
     db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
 ) -> list[DocumentRead]:
-    documents = document_service.list_documents(db, status=status, campaign_id=campaign_id)
+    documents = document_service.list_documents(
+        db, organization_id=organization_id, status=status, campaign_id=campaign_id
+    )
     return [DocumentRead.model_validate(d) for d in documents]
 
 
 @router.get("/{document_id}", response_model=DocumentRead, dependencies=[_can_view])
-def get_document(document_id: str, db: Session = Depends(get_db)) -> DocumentRead:
-    document = document_service.get_document(db, document_id)
+def get_document(
+    document_id: str, db: Session = Depends(get_db), organization_id: str = Depends(require_organization_scope)
+) -> DocumentRead:
+    document = document_service.get_document_in_org(db, document_id, organization_id=organization_id)
     return DocumentRead.model_validate(document)
 
 
 @router.get("/{document_id}/file", dependencies=[_can_view])
-def get_document_file(document_id: str, db: Session = Depends(get_db)) -> Response:
+def get_document_file(
+    document_id: str, db: Session = Depends(get_db), organization_id: str = Depends(require_organization_scope)
+) -> Response:
     """Streams the untouched original file so the frontend can display it
     (PROMPT 2 §24 document viewer). The original is never modified on disk;
     this only reads it back through the same storage adapter used to save it."""
-    document = document_service.get_document(db, document_id)
+    document = document_service.get_document_in_org(db, document_id, organization_id=organization_id)
     storage = get_storage_provider_for_document(db, document.storage_provider)
     content = storage.read(document.original_path)
     return Response(
@@ -93,17 +107,25 @@ def _process_or_enqueue(document_id: str, db: Session, user_id: str) -> Document
 
 @router.post("/{document_id}/process", response_model=DocumentRead, dependencies=[_can_manage])
 def process_document(
-    document_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
+    document_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    organization_id: str = Depends(require_organization_scope),
 ) -> DocumentRead:
+    document_service.get_document_in_org(db, document_id, organization_id=organization_id)  # 404s if cross-org
     return _process_or_enqueue(document_id, db, user_id)
 
 
 @router.post("/{document_id}/ocr", response_model=DocumentRead, dependencies=[_can_manage])
 def run_document_ocr(
-    document_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)
+    document_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    organization_id: str = Depends(require_organization_scope),
 ) -> DocumentRead:
     """Alias of /process: OCR and field extraction run as one pipeline step
     (see services.documents.document_service.process_document)."""
+    document_service.get_document_in_org(db, document_id, organization_id=organization_id)  # 404s if cross-org
     return _process_or_enqueue(document_id, db, user_id)
 
 
@@ -113,7 +135,9 @@ def correct_document(
     correction: DocumentCorrection,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
+    organization_id: str = Depends(require_organization_scope),
 ) -> DocumentRead:
+    document_service.get_document_in_org(db, document_id, organization_id=organization_id)  # 404s if cross-org
     document = document_service.apply_manual_correction(
         db, document_id, correction.model_dump(exclude_unset=True), user_id=user_id
     )

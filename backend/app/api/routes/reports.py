@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_permission
 from app.core.exceptions import ValidationFailedError
 from app.core.rbac import Permission
+from app.core.tenancy import require_organization_scope, resolve_campaign_scope
 from app.services.reports import report_service
 from app.services.reports.export_service import EXPORTERS, Column
 
@@ -14,23 +15,43 @@ router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(re
 
 
 @router.get("/summary")
-def reports_summary(campaign_id: str | None = None, db: Session = Depends(get_db)) -> dict:
-    return report_service.summary_report(db, campaign_id=campaign_id)
+def reports_summary(
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> dict:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    return report_service.summary_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
 
 
 @router.get("/expenses")
-def reports_expenses(campaign_id: str | None = None, db: Session = Depends(get_db)) -> list[dict]:
-    return report_service.expenses_report(db, campaign_id=campaign_id)
+def reports_expenses(
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> list[dict]:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    return report_service.expenses_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
 
 
 @router.get("/revenues")
-def reports_revenues(campaign_id: str | None = None, db: Session = Depends(get_db)) -> list[dict]:
-    return report_service.revenues_report(db, campaign_id=campaign_id)
+def reports_revenues(
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> list[dict]:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    return report_service.revenues_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
 
 
 @router.get("/documents")
-def reports_documents(campaign_id: str | None = None, db: Session = Depends(get_db)) -> dict:
-    return report_service.documents_report(db, campaign_id=campaign_id)
+def reports_documents(
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> dict:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    return report_service.documents_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
 
 
 # --- Export (PROMPT 3 FASE J) --------------------------------------------
@@ -95,31 +116,55 @@ def _export_response(export_format: str, rows: list[dict], *, columns: list[Colu
 
 
 @router.get("/summary/export")
-def export_summary(format: str = "csv", campaign_id: str | None = None, db: Session = Depends(get_db)) -> Response:
-    data = report_service.summary_report(db, campaign_id=campaign_id)
+def export_summary(
+    format: str = "csv",
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> Response:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    data = report_service.summary_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
     rows = _as_kv_rows(data, _SUMMARY_LABELS)
     return _export_response(format, rows, columns=_KV_COLUMNS, title="Resumo Financeiro (Relatório Auxiliar)", filename="resumo")
 
 
 @router.get("/expenses/export")
-def export_expenses(format: str = "csv", campaign_id: str | None = None, db: Session = Depends(get_db)) -> Response:
-    rows = report_service.expenses_report(db, campaign_id=campaign_id)
+def export_expenses(
+    format: str = "csv",
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> Response:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    rows = report_service.expenses_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
     return _export_response(
         format, rows, columns=_EXPENSE_COLUMNS, title="Despesas (Relatório Auxiliar)", filename="despesas"
     )
 
 
 @router.get("/revenues/export")
-def export_revenues(format: str = "csv", campaign_id: str | None = None, db: Session = Depends(get_db)) -> Response:
-    rows = report_service.revenues_report(db, campaign_id=campaign_id)
+def export_revenues(
+    format: str = "csv",
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> Response:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    rows = report_service.revenues_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
     return _export_response(
         format, rows, columns=_REVENUE_COLUMNS, title="Receitas (Relatório Auxiliar)", filename="receitas"
     )
 
 
 @router.get("/documents/export")
-def export_documents(format: str = "csv", campaign_id: str | None = None, db: Session = Depends(get_db)) -> Response:
-    data = report_service.documents_report(db, campaign_id=campaign_id)
+def export_documents(
+    format: str = "csv",
+    campaign_id: str | None = None,
+    db: Session = Depends(get_db),
+    organization_id: str = Depends(require_organization_scope),
+) -> Response:
+    resolved_campaign_id, campaign_ids = resolve_campaign_scope(db, organization_id, campaign_id)
+    data = report_service.documents_report(db, campaign_id=resolved_campaign_id, campaign_ids=campaign_ids)
     rows = _as_kv_rows(data, _DOCUMENTS_LABELS)
     return _export_response(
         format, rows, columns=_KV_COLUMNS, title="Documentos (Relatório Auxiliar)", filename="documentos"

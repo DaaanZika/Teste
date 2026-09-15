@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, NotConfiguredError, NotFoundError
+from app.core.tenancy import resolve_campaign_id
+from app.models.campaign import Campaign
 from app.models.enums import GmailSuggestionStatus
 from app.models.gmail_suggestion import GmailSuggestion
 from app.services.documents import document_service
@@ -78,12 +80,17 @@ def _iter_attachment_parts(payload: dict):
             yield from _iter_attachment_parts(part)
 
 
-def scan_inbox(db: Session, *, campaign_id: str | None = None, max_results: int = DEFAULT_MAX_RESULTS) -> list[GmailSuggestion]:
+def scan_inbox(
+    db: Session, *, organization_id: str, campaign_id: str | None = None, max_results: int = DEFAULT_MAX_RESULTS
+) -> list[GmailSuggestion]:
     """Searches the connected mailbox and records a PENDING suggestion for
     every not-yet-seen attachment that matches an allowed upload type
     (same extensions/MIME types as a manual upload — see Settings). Safe to
     call repeatedly: an already-suggested (message, attachment) pair is
-    skipped, never duplicated."""
+    skipped, never duplicated. `campaign_id` (PROMPT 4) is validated/
+    resolved against `organization_id` up front, same as a manual upload —
+    every suggestion this creates is anchored to a real, org-owned campaign."""
+    campaign_id = resolve_campaign_id(db, organization_id, campaign_id)
     token = _require_connected(db)
     settings = get_settings()
     headers = {"Authorization": f"Bearer {token}"}
@@ -151,25 +158,37 @@ def scan_inbox(db: Session, *, campaign_id: str | None = None, max_results: int 
     return created
 
 
-def list_suggestions(db: Session, *, status: GmailSuggestionStatus | None = None) -> list[GmailSuggestion]:
-    stmt = select(GmailSuggestion).order_by(GmailSuggestion.created_at.desc())
+def list_suggestions(
+    db: Session, *, organization_id: str, status: GmailSuggestionStatus | None = None
+) -> list[GmailSuggestion]:
+    stmt = (
+        select(GmailSuggestion)
+        .join(Campaign, GmailSuggestion.campaign_id == Campaign.id)
+        .where(Campaign.organization_id == organization_id)
+        .order_by(GmailSuggestion.created_at.desc())
+    )
     if status is not None:
         stmt = stmt.where(GmailSuggestion.status == status)
     return list(db.execute(stmt).scalars())
 
 
-def _get_suggestion(db: Session, suggestion_id: str) -> GmailSuggestion:
+def _get_suggestion_in_org(db: Session, suggestion_id: str, *, organization_id: str) -> GmailSuggestion:
     suggestion = db.get(GmailSuggestion, suggestion_id)
-    if suggestion is None:
+    if suggestion is None or suggestion.campaign_id is None:
+        raise NotFoundError(f"Sugestão do Gmail {suggestion_id} não encontrada.")
+    campaign = db.get(Campaign, suggestion.campaign_id)
+    if campaign is None or campaign.organization_id != organization_id:
         raise NotFoundError(f"Sugestão do Gmail {suggestion_id} não encontrada.")
     return suggestion
 
 
-def confirm_suggestion(db: Session, suggestion_id: str, *, user_id: str | None = None):
+def confirm_suggestion(db: Session, suggestion_id: str, *, user_id: str | None = None, organization_id: str):
     """Downloads the attachment for real and runs it through the normal
     upload pipeline — the only path by which a Gmail suggestion ever
-    becomes a `Document` (PROMPT 3 §45: no silent/automatic import)."""
-    suggestion = _get_suggestion(db, suggestion_id)
+    becomes a `Document` (PROMPT 3 §45: no silent/automatic import).
+    `organization_id` (PROMPT 4) scopes both the suggestion lookup itself
+    and the resulting upload's duplicate detection."""
+    suggestion = _get_suggestion_in_org(db, suggestion_id, organization_id=organization_id)
     if suggestion.status != GmailSuggestionStatus.PENDING:
         raise ConflictError(f"Sugestão {suggestion_id} já foi {suggestion.status.value.lower()}.")
 
@@ -190,6 +209,7 @@ def confirm_suggestion(db: Session, suggestion_id: str, *, user_id: str | None =
         mime_type=suggestion.mime_type,
         campaign_id=suggestion.campaign_id,
         user_id=user_id,
+        organization_id=organization_id,
     )
 
     suggestion.status = GmailSuggestionStatus.IMPORTED
@@ -199,8 +219,10 @@ def confirm_suggestion(db: Session, suggestion_id: str, *, user_id: str | None =
     return result
 
 
-def reject_suggestion(db: Session, suggestion_id: str, *, reason: str | None = None) -> GmailSuggestion:
-    suggestion = _get_suggestion(db, suggestion_id)
+def reject_suggestion(
+    db: Session, suggestion_id: str, *, reason: str | None = None, organization_id: str
+) -> GmailSuggestion:
+    suggestion = _get_suggestion_in_org(db, suggestion_id, organization_id=organization_id)
     if suggestion.status != GmailSuggestionStatus.PENDING:
         raise ConflictError(f"Sugestão {suggestion_id} já foi {suggestion.status.value.lower()}.")
 

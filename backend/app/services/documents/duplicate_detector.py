@@ -19,6 +19,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.campaign import Campaign
 from app.models.document import Document
 
 
@@ -29,14 +30,25 @@ class DuplicateCheckResult:
     reasons: list[str] = field(default_factory=list)
 
 
-def find_hash_duplicate(db: Session, sha256_hash: str) -> Document | None:
-    stmt = select(Document).where(Document.sha256_hash == sha256_hash).limit(1)
+def find_hash_duplicate(db: Session, sha256_hash: str, *, organization_id: str) -> Document | None:
+    """Scoped to the caller's own organization (PROMPT 4) — a hash match in
+    a different organization must never be surfaced (it would leak that
+    other organization's document id/filename/extracted fields to this
+    caller). The join to Campaign is what makes this an inner join: a
+    Document with no campaign_id (pre-multi-tenant orphan) never matches."""
+    stmt = (
+        select(Document)
+        .join(Campaign, Document.campaign_id == Campaign.id)
+        .where(Document.sha256_hash == sha256_hash, Campaign.organization_id == organization_id)
+        .limit(1)
+    )
     return db.execute(stmt).scalar_one_or_none()
 
 
 def find_logical_duplicate(
     db: Session,
     *,
+    organization_id: str,
     extracted_date: date | None,
     extracted_amount: Decimal | None,
     supplier_name: str | None,
@@ -46,16 +58,22 @@ def find_logical_duplicate(
 ) -> Document | None:
     """Best-effort match on business fields. Requires amount + date at minimum,
     plus at least one identifying field (supplier, CNPJ/CPF or document number),
-    to avoid false positives on sparse OCR results."""
+    to avoid false positives on sparse OCR results. Scoped to `organization_id`
+    for the same reason as find_hash_duplicate above."""
     if extracted_amount is None or extracted_date is None:
         return None
     identifying = [v for v in (cnpj, cpf, document_number, supplier_name) if v]
     if not identifying:
         return None
 
-    stmt = select(Document).where(
-        Document.extracted_date == extracted_date,
-        Document.extracted_amount == extracted_amount,
+    stmt = (
+        select(Document)
+        .join(Campaign, Document.campaign_id == Campaign.id)
+        .where(
+            Document.extracted_date == extracted_date,
+            Document.extracted_amount == extracted_amount,
+            Campaign.organization_id == organization_id,
+        )
     )
     for candidate in db.execute(stmt).scalars():
         if cnpj and candidate.extracted_cnpj == cnpj:
@@ -74,6 +92,7 @@ def find_logical_duplicate(
 def check_duplicates(
     db: Session,
     *,
+    organization_id: str,
     sha256_hash: str,
     extracted_date: date | None = None,
     extracted_amount: Decimal | None = None,
@@ -84,7 +103,7 @@ def check_duplicates(
 ) -> DuplicateCheckResult:
     result = DuplicateCheckResult()
 
-    hash_match = find_hash_duplicate(db, sha256_hash)
+    hash_match = find_hash_duplicate(db, sha256_hash, organization_id=organization_id)
     if hash_match is not None:
         result.is_possible_duplicate = True
         result.duplicate_document_id = hash_match.id
@@ -93,6 +112,7 @@ def check_duplicates(
 
     logical_match = find_logical_duplicate(
         db,
+        organization_id=organization_id,
         extracted_date=extracted_date,
         extracted_amount=extracted_amount,
         supplier_name=supplier_name,
