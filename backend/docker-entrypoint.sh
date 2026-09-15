@@ -7,4 +7,9 @@ set -e
 echo "Running database migrations..."
 alembic upgrade head
 
+# No-op unless SUPER_ADMIN_BOOTSTRAP_EMAIL/PASSWORD are set, and no-op again
+# once a SUPER_ADMIN already exists (see app/services/admin/bootstrap.py) —
+# safe to run on every start, same reasoning as the migration above.
+python -m app.services.admin.bootstrap
+
 exec "$@"

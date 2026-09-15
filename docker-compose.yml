@@ -53,11 +53,17 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       QUEUE_BACKEND: ${QUEUE_BACKEND:-inline}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-local-dev-secret}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
       # CORS_ORIGINS/FRONTEND_URL were documented in .env.example since
       # FASE D but never actually forwarded here — set them in .env and
       # they silently had no effect inside the container. Fixed in FASE M.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      # First SUPER_ADMIN (PROMPT 4) — set only on first run, then unset;
+      # the entrypoint below is idempotent (app/services/admin/bootstrap.py
+      # never creates a second SUPER_ADMIN or resets an existing password).
+      SUPER_ADMIN_BOOTSTRAP_EMAIL: ${SUPER_ADMIN_BOOTSTRAP_EMAIL:-}
+      SUPER_ADMIN_BOOTSTRAP_PASSWORD: ${SUPER_ADMIN_BOOTSTRAP_PASSWORD:-}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-}
       STORAGE_REGION: ${STORAGE_REGION:-}
