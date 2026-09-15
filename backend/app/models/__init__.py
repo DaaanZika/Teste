@@ -7,6 +7,7 @@ from app.models.document import Document, DocumentItem
 from app.models.expense import Expense
 from app.models.gmail_suggestion import GmailSuggestion
 from app.models.integration_connection import IntegrationConnection
+from app.models.organization import Organization
 from app.models.processing_job import ProcessingJob
 from app.models.revenue import Revenue
 from app.models.session import Session
@@ -25,6 +26,7 @@ __all__ = [
     "Expense",
     "GmailSuggestion",
     "IntegrationConnection",
+    "Organization",
     "ProcessingJob",
     "Revenue",
     "Session",

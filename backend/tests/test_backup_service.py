@@ -12,6 +12,7 @@ from app.models.campaign import Campaign
 from app.models.compliance import ComplianceAlert
 from app.models.document import Document
 from app.models.enums import BackupStatus
+from app.models.organization import Organization
 from app.services.documents import backup_service
 
 
@@ -25,7 +26,10 @@ def restore_backup_setting():
 
 @pytest.fixture()
 def campaign(db_session):
-    c = Campaign(name=f"Campanha {uuid.uuid4().hex[:8]}")
+    org = Organization(name="Org Teste", slug=f"org-{uuid.uuid4().hex[:8]}")
+    db_session.add(org)
+    db_session.flush()
+    c = Campaign(name=f"Campanha {uuid.uuid4().hex[:8]}", organization_id=org.id)
     db_session.add(c)
     db_session.commit()
     db_session.refresh(c)

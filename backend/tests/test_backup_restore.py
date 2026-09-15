@@ -19,6 +19,7 @@ import pytest
 
 from app.models.campaign import Campaign
 from app.models.document import Document
+from app.models.organization import Organization
 from app.services.backup.backup_service import (
     UnsupportedDatabaseError,
     create_backup,
@@ -70,8 +71,11 @@ def test_sqlite_backup_then_real_data_loss_then_restore_recovers_everything(tmp_
 
     engine, Session = _sqlite_engine_and_session(db_path)
     session = Session()
+    org_id = str(uuid.uuid4())
+    session.add(Organization(id=org_id, name="Org Backup", slug=f"org-backup-{uuid.uuid4().hex[:8]}"))
+    session.flush()
     campaign_id = str(uuid.uuid4())
-    session.add(Campaign(id=campaign_id, name="Campanha para teste de backup"))
+    session.add(Campaign(id=campaign_id, name="Campanha para teste de backup", organization_id=org_id))
     session.commit()
     session.close()
     engine.dispose()
@@ -112,7 +116,10 @@ def test_sqlite_restore_flags_mismatch_when_manifest_is_tampered(tmp_path: Path)
 
     engine, Session = _sqlite_engine_and_session(db_path)
     session = Session()
-    session.add(Campaign(id=str(uuid.uuid4()), name="Campanha 1"))
+    org_id = str(uuid.uuid4())
+    session.add(Organization(id=org_id, name="Org Backup", slug=f"org-backup-{uuid.uuid4().hex[:8]}"))
+    session.flush()
+    session.add(Campaign(id=str(uuid.uuid4()), name="Campanha 1", organization_id=org_id))
     session.commit()
     session.close()
     engine.dispose()
@@ -177,8 +184,11 @@ def test_postgres_backup_then_schema_wipe_then_restore_recovers_data(tmp_path: P
     Session = sessionmaker(bind=engine)
     session = Session()
 
+    org_id = str(uuid.uuid4())
+    session.add(Organization(id=org_id, name="Org Postgres", slug=f"org-pg-{uuid.uuid4().hex[:8]}"))
+    session.flush()
     campaign_id = str(uuid.uuid4())
-    session.add(Campaign(id=campaign_id, name="Campanha Postgres"))
+    session.add(Campaign(id=campaign_id, name="Campanha Postgres", organization_id=org_id))
     session.flush()
     session.add(
         Document(

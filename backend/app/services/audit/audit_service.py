@@ -36,6 +36,9 @@ def record(
     old_value: Any = None,
     new_value: Any = None,
     user_id: str | None = None,
+    organization_id: str | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> AuditLog:
     entry = AuditLog(
         entity=entity,
@@ -44,6 +47,9 @@ def record(
         old_value=_serialize(old_value),
         new_value=_serialize(new_value),
         user_id=user_id,
+        organization_id=organization_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
     )
     db.add(entry)
     db.flush()

@@ -24,3 +24,9 @@ class AuditLog(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    # PROMPT 4 — all nullable/additive: every pre-existing row (and every
+    # call site that doesn't pass them) keeps working unchanged.
+    organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)

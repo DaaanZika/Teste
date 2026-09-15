@@ -5,6 +5,7 @@ import pytest
 
 from app.models.campaign import Campaign
 from app.models.enums import TransactionType
+from app.models.organization import Organization
 from app.models.transaction import Transaction
 from app.services.finance import calculator
 
@@ -16,7 +17,12 @@ def campaign_id(db_session):
     # inserted by other tests sharing the same session-wide database, and
     # so the transactions.campaign_id foreign key is actually satisfied —
     # SQLite doesn't enforce FKs by default, but PostgreSQL does.
-    campaign = Campaign(name="Campanha de teste")
+    import uuid
+
+    org = Organization(name="Org Teste", slug=f"org-{uuid.uuid4().hex[:8]}")
+    db_session.add(org)
+    db_session.flush()
+    campaign = Campaign(name="Campanha de teste", organization_id=org.id)
     db_session.add(campaign)
     db_session.commit()
     return campaign.id

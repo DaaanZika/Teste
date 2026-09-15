@@ -9,12 +9,16 @@ import pytest
 
 from app.models.campaign import Campaign
 from app.models.document import Document
+from app.models.organization import Organization
 from app.queue import worker
 
 
 @pytest.fixture()
 def uploaded_document(db_session):
-    campaign = Campaign(name=f"Campanha {uuid.uuid4().hex[:8]}")
+    org = Organization(name="Org Teste", slug=f"org-{uuid.uuid4().hex[:8]}")
+    db_session.add(org)
+    db_session.flush()
+    campaign = Campaign(name=f"Campanha {uuid.uuid4().hex[:8]}", organization_id=org.id)
     db_session.add(campaign)
     db_session.commit()
 

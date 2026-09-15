@@ -25,15 +25,39 @@ from app.core.database import get_db
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.rbac import Permission, role_has_permission
 from app.models.enums import Role
+from app.models.organization import Organization
 from app.models.user import User
 
 LOCAL_OPERATOR_EMAIL = "local@campanhas.local"
+LOCAL_ORGANIZATION_SLUG = "local"
+
+
+def _get_or_create_local_organization(db: Session) -> Organization:
+    """AUTH_PROVIDER=local (V1's zero-config default, still fully
+    supported — PROMPT 4 rule: local use must keep working 100% without
+    any multi-tenant setup) needs exactly one implicit tenant so the
+    single auto-created operator can create campaigns like it always
+    could. Real multi-org setups use AUTH_PROVIDER=google/password."""
+    org = db.query(Organization).filter(Organization.slug == LOCAL_ORGANIZATION_SLUG).one_or_none()
+    if org is None:
+        org = Organization(name="Organização Local", slug=LOCAL_ORGANIZATION_SLUG)
+        db.add(org)
+        db.commit()
+        db.refresh(org)
+    return org
 
 
 def _get_or_create_local_user(db: Session) -> User:
     user = db.query(User).filter(User.email == LOCAL_OPERATOR_EMAIL).one_or_none()
     if user is None:
-        user = User(name="Operador Local", email=LOCAL_OPERATOR_EMAIL, role=Role.ADMIN, active=True)
+        org = _get_or_create_local_organization(db)
+        user = User(
+            name="Operador Local",
+            email=LOCAL_OPERATOR_EMAIL,
+            role=Role.ADMIN,
+            active=True,
+            organization_id=org.id,
+        )
         db.add(user)
         db.commit()
         db.refresh(user)

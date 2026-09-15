@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.core.config import Settings
 from app.models.campaign import Campaign
+from app.models.organization import Organization
 from app.services.backup import cli as backup_cli
 
 
@@ -39,7 +40,10 @@ def test_backup_then_restore_via_cli_round_trip(tmp_path, monkeypatch, capsys):
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
     session = Session()
-    session.add(Campaign(id=str(uuid.uuid4()), name="Campanha CLI"))
+    org_id = str(uuid.uuid4())
+    session.add(Organization(id=org_id, name="Org CLI", slug=f"org-cli-{uuid.uuid4().hex[:8]}"))
+    session.flush()
+    session.add(Campaign(id=str(uuid.uuid4()), name="Campanha CLI", organization_id=org_id))
     session.commit()
     session.close()
     engine.dispose()
