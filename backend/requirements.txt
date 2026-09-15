@@ -25,6 +25,11 @@ PyMuPDF==1.25.1
 # at runtime, and the test suite's TestClient at test time.
 httpx==0.28.1
 
+# Password hashing (PROMPT 4 — local/password login, app/core/password.py).
+# bcrypt directly, not passlib: passlib's last release predates bcrypt 4.x's
+# API change.
+bcrypt==4.2.1
+
 # Exportação de relatórios auxiliares (FASE J) — nunca o layout oficial
 # do TSE/CONTA+JE, ver app/services/reports/export_service.py.
 openpyxl==3.1.5

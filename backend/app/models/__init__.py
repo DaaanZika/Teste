@@ -8,6 +8,7 @@ from app.models.expense import Expense
 from app.models.gmail_suggestion import GmailSuggestion
 from app.models.integration_connection import IntegrationConnection
 from app.models.organization import Organization
+from app.models.password_reset_token import PasswordResetToken
 from app.models.processing_job import ProcessingJob
 from app.models.revenue import Revenue
 from app.models.session import Session
@@ -28,6 +29,7 @@ __all__ = [
     "GmailSuggestion",
     "IntegrationConnection",
     "Organization",
+    "PasswordResetToken",
     "ProcessingJob",
     "Revenue",
     "Session",
